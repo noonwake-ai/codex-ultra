@@ -105,20 +105,29 @@ def resolve_provider(config_path, override):
 
 
 def build_runtime(root, python):
+    """Build the private virtual environment, or fail with one fixed code.
+
+    A missing interpreter, no network for pip or a full disk used to escape as a
+    raw CalledProcessError traceback, which tells an installer user nothing.
+    """
     runtime = root / "runtime"
-    if not (runtime / "bin/python").exists():
-        subprocess.run([python, "-m", "venv", str(runtime)], check=True)
     pip = str(runtime / "bin/python")
-    subprocess.run([pip, "-m", "pip", "install", "--quiet", "--upgrade", "pip"], check=True)
-    subprocess.run([pip, "-m", "pip", "install", "--quiet",
-                    "-r", str(root / "requirements.txt")], check=True)
-    cache = root / "tokenizer-cache"
-    cache.mkdir(exist_ok=True)
-    os.chmod(cache, 0o700)
-    subprocess.run([pip, "-c",
-                    'import os,sys,tiktoken;os.environ["TIKTOKEN_CACHE_DIR"]=sys.argv[1];'
-                    'tiktoken.get_encoding("o200k_base");tiktoken.get_encoding("cl100k_base")',
-                    str(cache)], check=True)
+    try:
+        if not (runtime / "bin/python").exists():
+            subprocess.run([python, "-m", "venv", str(runtime)], check=True)
+        subprocess.run([pip, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+                       check=True)
+        subprocess.run([pip, "-m", "pip", "install", "--quiet",
+                        "-r", str(root / "requirements.txt")], check=True)
+        cache = root / "tokenizer-cache"
+        cache.mkdir(exist_ok=True)
+        os.chmod(cache, 0o700)
+        subprocess.run([pip, "-c",
+                        'import os,sys,tiktoken;os.environ["TIKTOKEN_CACHE_DIR"]=sys.argv[1];'
+                        'tiktoken.get_encoding("o200k_base");tiktoken.get_encoding("cl100k_base")',
+                        str(cache)], check=True)
+    except (subprocess.CalledProcessError, OSError):
+        _fail("runtime_build_failed_check_python_and_network")
     return pip
 
 
@@ -220,8 +229,9 @@ def main(argv=None):
         }, indent=2) + "\n")
         os.chmod(config, 0o600)
 
-        subprocess.run([python, str(root / "adapter.py"), "--config", str(config),
-                        "--init-key"], check=True)
+        if subprocess.run([python, str(root / "adapter.py"), "--config", str(config),
+                           "--init-key"]).returncode != 0:
+            _fail("checkpoint_key_init_failed")
         write_launchagent(root, args.label, python, config)
         if not wait_for_health(args.port):
             _fail("service_not_healthy_route_unchanged")
@@ -233,7 +243,8 @@ def main(argv=None):
                  "--config", args.codex_config, "--provider", provider]
         if args.cc_switch_db:
             route += ["--cc-switch-db", args.cc_switch_db]
-        subprocess.run(route, check=True)
+        if subprocess.run(route).returncode != 0:
+            _fail("routing_step_failed")
     except InstallError as exc:
         print(json.dumps({"ok": False, "code": str(exc)}), file=sys.stderr)
         return 2

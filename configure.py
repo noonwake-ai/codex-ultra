@@ -138,7 +138,13 @@ def cc_switch_write(db, provider, stored):
         connection.close()
 
 
-def sync_cc_switch(db, provider, source, target):
+def cc_switch_plan(db, provider, source, target):
+    """Validate and prepare the CC Switch row without writing anything.
+
+    This runs before `config.toml` is touched so that a missing provider, an
+    unreadable database or a credential-bearing row aborts the whole command
+    instead of leaving the platform config half-switched.
+    """
     raw = cc_switch_row(db, provider)
     if raw is None:
         _fail("cc_switch_provider_not_found:" + provider)
@@ -146,7 +152,7 @@ def sync_cc_switch(db, provider, source, target):
     stored["config"] = replace_endpoint(stored["config"], provider, source, target)
     if "OPENAI_API_KEY" in stored["config"]:
         _fail("refusing_to_rewrite_provider_that_holds_credentials")
-    cc_switch_write(db, provider, stored)
+    return stored
 
 
 def main(argv=None):
@@ -191,6 +197,10 @@ def main(argv=None):
             source, target = saved["local_endpoint"], saved["upstream"]
             updated = replace_endpoint(live, provider, source, target)
 
+        stored = None
+        if args.cc_switch_db:
+            stored = cc_switch_plan(args.cc_switch_db, provider, source, target)
+
         if args.action == "apply":
             record.parent.mkdir(parents=True, exist_ok=True)
             os.chmod(record.parent, 0o700)
@@ -206,8 +216,8 @@ def main(argv=None):
         if Path(args.config).read_text() != live:
             _fail("config_changed_during_write")
         write_atomic(args.config, updated)
-        if args.cc_switch_db:
-            sync_cc_switch(args.cc_switch_db, provider, source, target)
+        if stored is not None:
+            cc_switch_write(args.cc_switch_db, provider, stored)
         if args.action == "rollback":
             record.unlink()
         print(json.dumps({"ok": True, "action": args.action, "provider": provider,

@@ -108,6 +108,18 @@ class CompactorModelTests(unittest.TestCase):
         install.validate_compactor_model("anything-at-all", None)
 
 
+class RuntimeTests(unittest.TestCase):
+    """A broken toolchain has to come back as a code, not a traceback."""
+
+    def test_a_broken_interpreter_is_reported_as_a_fixed_code(self):
+        with tempfile.TemporaryDirectory() as temp:
+            broken = str(pathlib.Path(temp) / "no-such-python")
+            with self.assertRaises(install.InstallError) as raised:
+                install.build_runtime(pathlib.Path(temp), broken)
+            self.assertEqual(str(raised.exception),
+                             "runtime_build_failed_check_python_and_network")
+
+
 class SourceTests(unittest.TestCase):
     def test_every_file_the_installer_copies_exists_in_the_repository(self):
         for name in install.SOURCES:

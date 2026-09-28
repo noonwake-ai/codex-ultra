@@ -128,6 +128,40 @@ class ConfigureTests(unittest.TestCase):
         self.assertIn("127.0.0.1:15731", stored["config"])
         self.assertNotIn("synthetic", self.record.read_text())
 
+    def cc_switch_db_with(self, settings):
+        connection = sqlite3.connect(self.db)
+        connection.executescript(
+            "CREATE TABLE providers(id TEXT, app_type TEXT, settings_config TEXT);")
+        for provider, payload in settings:
+            connection.execute("INSERT INTO providers VALUES(?,?,?)", (
+                provider, "codex", json.dumps(payload)))
+        connection.commit()
+        connection.close()
+
+    def test_a_refused_cc_switch_sync_leaves_no_partial_apply(self):
+        """The command reports failure, so nothing at all may have been done."""
+        self.cc_switch_db_with([("MyGateway", {
+            "auth": {},
+            "config": ORIGINAL.replace(
+                'wire_api = "responses"',
+                'wire_api = "responses"\nOPENAI_API_KEY = "synthetic"')})])
+
+        code, _ = self.run_cli(*self.base("apply", upstream="https://gateway.example/v1",
+                                          cc_switch_db=self.db))
+        self.assertEqual(code, 2)
+        self.assertEqual(self.config.read_text(), ORIGINAL)
+        self.assertFalse(self.record.exists(),
+                         "a failed apply must not leave a rollback record behind")
+
+    def test_a_missing_cc_switch_provider_leaves_no_partial_apply(self):
+        self.cc_switch_db_with([])
+
+        code, _ = self.run_cli(*self.base("apply", upstream="https://gateway.example/v1",
+                                          cc_switch_db=self.db))
+        self.assertEqual(code, 2)
+        self.assertEqual(self.config.read_text(), ORIGINAL)
+        self.assertFalse(self.record.exists())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
