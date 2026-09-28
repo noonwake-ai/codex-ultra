@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" alt="Code Ultra" width="820">
+<img src="docs/assets/banner.svg" alt="Codex Ultra" width="820">
 
-# Code Ultra
+# Codex Ultra
 
 **How strong is Codex when it can use every model?**
 
@@ -27,13 +27,13 @@ Codex is excellent, but its context compaction, tool calling and image handling
 are built around one vendor. Point it at a different model and the first long
 task breaks.
 
-**Code Ultra runs a small local adapter that gives every model those same native
+**Codex Ultra runs a small local adapter that gives every model those same native
 abilities.**
 
 ```text
 Before                              After
 ─────────────────────              ─────────────────────
-Codex ──────────────────► GPT      Codex ──► Code Ultra ──► DeepSeek
+Codex ──────────────────► GPT      Codex ──► Codex Ultra ──► DeepSeek
        (only GPT works)                       └─► Gemini
                                               ├─► Claude
                                               ├─► Grok
@@ -49,7 +49,7 @@ context fills up. Compaction still works, the task continues, nothing returns 50
 
 ## What it actually fixes
 
-| Pain | Without Code Ultra | With Code Ultra |
+| Pain | Without Codex Ultra | With Codex Ultra |
 |---|---|---|
 | **Auto-compaction** | Compaction requests fail after switching models; long tasks die | Compaction runs on a model you choose and the task continues |
 | **Tool calling** | The gateway splits tool results away from their images; the model errors out | Calls and results are re-paired and images arrive intact |
@@ -62,7 +62,7 @@ context fills up. Compaction still works, the task continues, nothing returns 50
 
 ## Supported models
 
-Code Ultra is not tied to a vendor. **Whatever your gateway offers, you can use.**
+Codex Ultra is not tied to a vendor. **Whatever your gateway offers, you can use.**
 Built-in policy families:
 
 | Vendor | Slugs | Images | Long context |
@@ -78,7 +78,7 @@ Built-in policy families:
 
 > The table describes **treatment policy** — which routes need image relocation,
 > which need vendor-specific thinking filtered, which should use the full window.
-> **Real numbers always come from your gateway.** Code Ultra never invents a model
+> **Real numbers always come from your gateway.** Codex Ultra never invents a model
 > your key cannot see and never silently shrinks or inflates an advertised window.
 > See [model policy](docs/MODELS.md).
 
@@ -94,14 +94,14 @@ Adding a vendor takes one line in [`model_presets.py`](model_presets.py). PRs we
 2. **Python 3.11 or newer** (`python3 --version`)
 3. **A gateway** exposing the OpenAI Responses API plus a `/models` catalog — for example your own [Sub2API](https://github.com/Wei-Shaw/sub2api)
 4. **One compaction model**: whichever model you want summarizing context, ideally cheap and fast
-5. **[CC Switch](https://github.com/farion1231/cc-switch), optional**: if it manages your providers, Code Ultra keeps its record in sync so switching providers will not disable the adapter
+5. **[CC Switch](https://github.com/farion1231/cc-switch), optional**: if it manages your providers, Codex Ultra keeps its record in sync so switching providers will not disable the adapter
 
 ### Three steps
 
 ```bash
-git clone https://github.com/noonwake-ai/code-ultra.git
-cd code-ultra
-export CODE_ULTRA_API_KEY="your-gateway-key"
+git clone https://github.com/noonwake-ai/codex-ultra.git
+cd codex-ultra
+export CODEX_ULTRA_API_KEY="your-gateway-key"
 ```
 
 ```bash
@@ -123,9 +123,9 @@ Then pick your DeepSeek or Gemini model inside Codex and get to work.
 <summary>Curious what gets installed? (click)</summary>
 
 ```text
-~/Library/Application Support/Code Ultra/   ← source and venv, mode 700
+~/Library/Application Support/Codex Ultra/   ← source and venv, mode 700
 ~/.codex/config.toml                        ← one base_url changed, recorded
-~/Library/LaunchAgents/ai.codeultra.local-adapter.plist   ← starts at login
+~/Library/LaunchAgents/ai.codexultra.local-adapter.plist   ← starts at login
 ```
 
 ```bash
@@ -139,12 +139,12 @@ python3 configure.py rollback   # restore the endpoint, keep later edits
 
 ## How it works
 
-Code Ultra is a local Responses proxy on `127.0.0.1`. Codex believes it is talking
+Codex Ultra is a local Responses proxy on `127.0.0.1`. Codex believes it is talking
 to your gateway; in between sits a translator that understands model differences.
 
 ```mermaid
 flowchart LR
-    A[Codex desktop] -->|Responses API| B[Code Ultra local adapter]
+    A[Codex desktop] -->|Responses API| B[Codex Ultra local adapter]
     B --> C{Router}
     C -->|compaction| D[Your compaction model]
     C -->|normal request| E[Any model you pick]
@@ -161,7 +161,7 @@ It does four things:
 3. **Tool-image repair** — when a gateway splits calls, results and images apart, they are re-paired so the image reaches the model intact.
 4. **Catalog building** — windows, image support and reasoning levels are filled in per vendor so Codex schedules correctly.
 
-Design rule: **Code Ultra never modifies your credentials and never touches your
+Design rule: **Codex Ultra never modifies your credentials and never touches your
 chat history.** It forwards and reshapes requests, nothing more.
 
 ---
@@ -218,7 +218,7 @@ can run `adapter.py` by hand; service-management PRs are welcome.
 <details>
 <summary><b>Does it conflict with CC Switch?</b></summary>
 
-No. CC Switch decides *which provider* you use; Code Ultra decides *how that
+No. CC Switch decides *which provider* you use; Codex Ultra decides *how that
 provider is adapted*. Both touch the same `base_url`, so the installer updates the
 CC Switch record too, preventing a later provider switch from silently dropping
 the adapter.
@@ -228,12 +228,12 @@ the adapter.
 
 ## Credits
 
-Code Ultra stands on two excellent open source projects:
+Codex Ultra stands on two excellent open source projects:
 
 - **[Sub2API](https://github.com/Wei-Shaw/sub2api)** — one gateway for every model subscription
 - **[CC Switch](https://github.com/farion1231/cc-switch)** — cross-platform provider switcher
 
-Code Ultra neither bundles nor modifies their code; it works alongside them.
+Codex Ultra neither bundles nor modifies their code; it works alongside them.
 
 ## License
 

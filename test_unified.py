@@ -26,8 +26,8 @@ HERE = Path(__file__).resolve().parent
 # so the expected digest is pinned here rather than derived at runtime.
 BASELINE_PATH = HERE / 'fixtures' / 'adapter_baseline.py'
 BASELINE_CONTENT = BASELINE_PATH.read_bytes()
-BASELINE_SHA256 = '557e243ee8dc0ccfeb501b9a71e9798b16209bb0ed23c58a02db12fdbe3481f5'
-BASELINE_BYTES = 30511
+BASELINE_SHA256 = '31ff2e888bf04bbf2ea244d690fbfd1f1ed1a3933e234380f6462995a072e3bb'
+BASELINE_BYTES = 30513
 if (hashlib.sha256(BASELINE_CONTENT).hexdigest() != BASELINE_SHA256
         or len(BASELINE_CONTENT) != BASELINE_BYTES):
     raise RuntimeError('fixed_adapter_baseline_provenance_mismatch')

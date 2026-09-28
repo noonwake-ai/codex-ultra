@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" alt="Code Ultra" width="820">
+<img src="docs/assets/banner.svg" alt="Codex Ultra" width="820">
 
-# Code Ultra
+# Codex Ultra
 
 **当 Codex 可以使用所有模型时，有多强。**
 
@@ -25,12 +25,12 @@
 Codex 很强，但它的上下文压缩、工具调用、图片处理，都是照着 GPT 设计的。
 换一个模型过去，第一句话还没说完，压缩就崩了。
 
-**Code Ultra 在你自己电脑上跑一个本地适配层，把这些"原生能力"补齐给所有模型。**
+**Codex Ultra 在你自己电脑上跑一个本地适配层，把这些"原生能力"补齐给所有模型。**
 
 ```text
-你现在的样子                        用了 Code Ultra 之后
+你现在的样子                        用了 Codex Ultra 之后
 ─────────────────────              ─────────────────────
-Codex ──────────────────► GPT      Codex ──► Code Ultra ──► DeepSeek
+Codex ──────────────────► GPT      Codex ──► Codex Ultra ──► DeepSeek
        （只有 GPT 顺）                       └─► Gemini
                                               ├─► Claude
                                               ├─► Grok
@@ -46,7 +46,7 @@ Codex ──────────────────► GPT      Codex �
 
 ## 它到底解决了什么
 
-| 痛点 | 没有 Code Ultra | 有 Code Ultra |
+| 痛点 | 没有 Codex Ultra | 有 Codex Ultra |
 |---|---|---|
 | **自动压缩** | 换模型后压缩请求 502，长任务直接断 | 用你指定的模型做压缩，任务无缝接续 |
 | **工具调用** | 上游网关把工具结果和图片拆散，模型直接报错 | 自动修复调用/结果配对，图片完整送达 |
@@ -59,7 +59,7 @@ Codex ──────────────────► GPT      Codex �
 
 ## 支持的模型
 
-Code Ultra 不绑定厂商，**你网关里有什么，你就能用什么**。
+Codex Ultra 不绑定厂商，**你网关里有什么，你就能用什么**。
 已内置策略的厂商家族：
 
 | 厂商 | 代表模型 | 图片 | 长上下文 |
@@ -74,7 +74,7 @@ Code Ultra 不绑定厂商，**你网关里有什么，你就能用什么**。
 | **OpenAI** | `gpt-*` `o1/o3/o4*` | 是 | 原生直通 |
 
 > 表格里填的是**处理策略**：哪种路由需要图片搬运、哪种需要过滤加密思考块、哪种用满窗口。
-> **具体数值永远以你的网关为准**——Code Ultra 不会凭空给你一个你的 key 看不到的模型，
+> **具体数值永远以你的网关为准**——Codex Ultra 不会凭空给你一个你的 key 看不到的模型，
 > 也不会擅自缩小或放大网关给的窗口。细节见 [模型能力表](docs/MODELS.md)。
 
 想加一个厂商？改 [`model_presets.py`](model_presets.py) 里的一行就够了，欢迎 PR。
@@ -88,15 +88,15 @@ Code Ultra 不绑定厂商，**你网关里有什么，你就能用什么**。
 1. **一台 macOS 电脑**（用系统自带的 Keychain 和 launchd 守护进程，随登录自启）
 2. **Python 3.11 或更高**（`python3 --version` 看一眼）
 3. **一个网关地址**：任何实现了 OpenAI Responses 接口、并且有 `/models` 目录的网关，比如你自己跑的 [Sub2API](https://github.com/Wei-Shaw/sub2api)
-4. **至少一个压缩模型**：Code Ultra 用它来帮你压缩上下文，选一个你额度充足、反应快的
-5. **[CC Switch](https://github.com/farion1231/cc-switch) 可选**：它在管你的供应商配置的话，Code Ultra 会顺带同步，切换供应商时不会被覆盖
+4. **至少一个压缩模型**：Codex Ultra 用它来帮你压缩上下文，选一个你额度充足、反应快的
+5. **[CC Switch](https://github.com/farion1231/cc-switch) 可选**：它在管你的供应商配置的话，Codex Ultra 会顺带同步，切换供应商时不会被覆盖
 
 ### 三步装完
 
 ```bash
-git clone https://github.com/noonwake-ai/code-ultra.git
-cd code-ultra
-export CODE_ULTRA_API_KEY="你的网关密钥"
+git clone https://github.com/noonwake-ai/codex-ultra.git
+cd codex-ultra
+export CODEX_ULTRA_API_KEY="你的网关密钥"
 ```
 
 ```bash
@@ -118,9 +118,9 @@ python3 install.py \
 <summary>想先看看会装成什么样？（点开）</summary>
 
 ```text
-~/Library/Application Support/Code Ultra/   ← 服务本体和依赖，权限 700
+~/Library/Application Support/Codex Ultra/   ← 服务本体和依赖，权限 700
 ~/.codex/config.toml                        ← 只改一个 base_url，备份在案
-~/Library/LaunchAgents/ai.codeultra.local-adapter.plist   ← 随登录自启
+~/Library/LaunchAgents/ai.codexultra.local-adapter.plist   ← 随登录自启
 ```
 
 ```bash
@@ -137,12 +137,12 @@ python3 configure.py rollback
 
 ## 工作原理
 
-Code Ultra 是一个跑在 `127.0.0.1` 上的本地 Responses 代理。Codex 以为自己在跟网关说话，
+Codex Ultra 是一个跑在 `127.0.0.1` 上的本地 Responses 代理。Codex 以为自己在跟网关说话，
 其实中间多了个懂模型的翻译官。
 
 ```mermaid
 flowchart LR
-    A[Codex 桌面端] -->|Responses API| B[Code Ultra 本地适配层]
+    A[Codex 桌面端] -->|Responses API| B[Codex Ultra 本地适配层]
     B --> C{路由器}
     C -->|压缩请求| D[你指定的压缩模型]
     C -->|普通请求| E[你选的任意模型]
@@ -159,7 +159,7 @@ flowchart LR
 3. **工具图片修复** —— 发现网关把工具调用、结果、图片拆散了，就重新配对，图片完整送达模型。
 4. **模型目录构建** —— 按厂商策略给你的目录补上窗口、图片、思考档位，让 Codex 正确调度。
 
-关键设计：**Code Ultra 从不修改你的密钥，也不碰你的聊天记录**。
+关键设计：**Codex Ultra 从不修改你的密钥，也不碰你的聊天记录**。
 它只做请求转发和格式转换。
 
 ---
@@ -212,7 +212,7 @@ python3 -m unittest discover -s . -p 'test_*.py'
 <details>
 <summary><b>和 CC Switch 会冲突吗？</b></summary>
 
-不会。CC Switch 管的是"用哪个供应商"，Code Ultra 管的是"这个供应商怎么被模型适配"。
+不会。CC Switch 管的是"用哪个供应商"，Codex Ultra 管的是"这个供应商怎么被模型适配"。
 两者改的是同一个 `base_url`，所以安装时会同步 CC Switch 里的记录，
 避免你下次切供应商时把本地适配层切没了。
 </details>
@@ -221,12 +221,12 @@ python3 -m unittest discover -s . -p 'test_*.py'
 
 ## 致谢
 
-Code Ultra 站在两个优秀开源项目的肩膀上：
+Codex Ultra 站在两个优秀开源项目的肩膀上：
 
 - **[Sub2API](https://github.com/Wei-Shaw/sub2api)** —— 一站式模型中转网关，把各家模型统一成一套接口
 - **[CC Switch](https://github.com/farion1231/cc-switch)** —— 跨平台供应商切换器，管好你的 API 配置
 
-Code Ultra 不包含也不修改它们的代码，只是跟它们配合工作。
+Codex Ultra 不包含也不修改它们的代码，只是跟它们配合工作。
 
 ## 许可证
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the Code Ultra local adapter on macOS and route Codex through it.
+"""Install the Codex Ultra local adapter on macOS and route Codex through it.
 
     python3 install.py --upstream https://gateway.example/v1 \
         --compactor-model gpt-6-sol --compactor-effort medium
@@ -33,9 +33,9 @@ import urllib.error
 import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
-DEFAULT_ROOT = pathlib.Path.home() / "Library/Application Support/Code Ultra"
+DEFAULT_ROOT = pathlib.Path.home() / "Library/Application Support/Codex Ultra"
 DEFAULT_PORT = 15731
-DEFAULT_LABEL = "ai.codeultra.local-adapter"
+DEFAULT_LABEL = "ai.codexultra.local-adapter"
 SOURCES = (
     "adapter.py", "tool_image_bridge.py", "model_presets.py", "build_catalog.py",
     "direct_handoff.py", "native_checkpoint.py", "configure.py", "requirements.txt",
@@ -227,7 +227,7 @@ def main(argv=None):
                        if args.catalog else None,
             "cc_db": args.cc_switch_db,
             "credential_provider_id": provider if args.cc_switch_db else None,
-            "credential_env": "CODE_ULTRA_API_KEY",
+            "credential_env": "CODEX_ULTRA_API_KEY",
         }, indent=2) + "\n")
         os.chmod(config, 0o600)
 

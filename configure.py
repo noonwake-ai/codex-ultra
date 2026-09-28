@@ -34,7 +34,7 @@ except ImportError:  # Python 3.11+
 
 LOCAL_DEFAULT = "http://127.0.0.1:15731"
 HOME = Path.home()
-ROOT = HOME / "Library/Application Support/Code Ultra"
+ROOT = HOME / "Library/Application Support/Codex Ultra"
 CONFIG = HOME / ".codex/config.toml"
 CC_DB = HOME / ".cc-switch/cc-switch.db"
 
@@ -101,7 +101,7 @@ def replace_endpoint(text, provider, source, target):
 def write_atomic(path, content):
     path = Path(path).resolve()
     mode = path.stat().st_mode & 0o777
-    handle, temp = tempfile.mkstemp(prefix=".code-ultra-", dir=str(path.parent))
+    handle, temp = tempfile.mkstemp(prefix=".codex-ultra-", dir=str(path.parent))
     try:
         with os.fdopen(handle, "w") as stream:
             stream.write(content)

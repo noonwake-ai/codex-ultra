@@ -13,11 +13,11 @@ from direct_handoff import Strategy
 from native_checkpoint import NativeCheckpointCache
 
 PREFIX = 'baseline:'
-AAD = b'code-ultra-checkpoint-v1'
+AAD = b'codex-ultra-checkpoint-v1'
 MAX_BYTES = 64 * 1024 * 1024
 HOP = {'host','content-length','transfer-encoding','connection','keep-alive',
        'proxy-authenticate','proxy-authorization','te','trailer','upgrade','content-encoding'}
-SERVICE = 'code-ultra'
+SERVICE = 'codex-ultra'
 ACCOUNT = 'checkpoint-key-v1'
 KNOWN_INPUT_TYPES = frozenset((
     'message', 'reasoning', 'function_call', 'function_call_output',

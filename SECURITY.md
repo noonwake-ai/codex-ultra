@@ -1,6 +1,6 @@
 # 安全说明
 
-Code Ultra 会在你的机器上经手 API 密钥和对话内容，所以这里把边界写清楚。
+Codex Ultra 会在你的机器上经手 API 密钥和对话内容，所以这里把边界写清楚。
 
 [返回主页](README.md) · [参与贡献](CONTRIBUTING.md)
 
@@ -10,7 +10,7 @@ Code Ultra 会在你的机器上经手 API 密钥和对话内容，所以这里�
 
 请走 GitHub 的私密报告入口，不要开公开 issue：
 
-<https://github.com/noonwake-ai/code-ultra/security/advisories/new>
+<https://github.com/noonwake-ai/codex-ultra/security/advisories/new>
 
 请附上：受影响的版本或 commit、复现步骤、你能观察到的影响范围。
 **不要在报告里粘贴真实密钥**，把 key 换成 `sk-REDACTED` 这样的占位串。
@@ -34,7 +34,7 @@ Code Ultra 会在你的机器上经手 API 密钥和对话内容，所以这里�
 
 ## 用之前请自己确认
 
-- 你信任自己配置的那个网关地址。Code Ultra 只做转发和格式转换，
+- 你信任自己配置的那个网关地址。Codex Ultra 只做转发和格式转换，
   不判断上游是否可信。
 - 你清楚模型请求会离开本机，发送到你填写的那个地址。
 

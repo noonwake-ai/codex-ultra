@@ -21,25 +21,25 @@
 在装之前先确认你的网关是这个形状的：
 
 ```bash
-export CODE_ULTRA_API_KEY="你的网关密钥"
-curl -sS -H "Authorization: Bearer $CODE_ULTRA_API_KEY" \
+export CODEX_ULTRA_API_KEY="你的网关密钥"
+curl -sS -H "Authorization: Bearer $CODEX_ULTRA_API_KEY" \
   "https://你的网关地址/v1/models?client_version=0.158.0" | head -c 300
 ```
 
 看到类似于 `{"models":[{"slug":...` 的 JSON，就说明对上了。
-如果返回的是 HTML、401 或者别家的结构，请先在网关侧修好，Code Ultra 不会替你猜接口。
+如果返回的是 HTML、401 或者别家的结构，请先在网关侧修好，Codex Ultra 不会替你猜接口。
 
 > **CC Switch 用户**：不要换供应商，也不要新建。你现有的供应商和 key 就是对的，
-> 安装时加上 `--cc-switch-db` 让 Code Ultra 同步更新那条记录即可。
+> 安装时加上 `--cc-switch-db` 让 Codex Ultra 同步更新那条记录即可。
 
 ---
 
 ## 二、三行命令
 
 ```bash
-git clone https://github.com/noonwake-ai/code-ultra.git
-cd code-ultra
-export CODE_ULTRA_API_KEY="你的网关密钥"
+git clone https://github.com/noonwake-ai/codex-ultra.git
+cd codex-ultra
+export CODEX_ULTRA_API_KEY="你的网关密钥"
 ```
 
 **第一步：生成模型目录。**
@@ -91,10 +91,10 @@ CC Switch 用户加一个参数，避免下次切供应商时把适配层切掉�
 它只做四件事，而且都是可逆的：
 
 ```text
-~/Library/Application Support/Code Ultra/     服务源码、虚拟环境、tokenizer 缓存（权限 700）
+~/Library/Application Support/Codex Ultra/     服务源码、虚拟环境、tokenizer 缓存（权限 700）
 ~/.codex/config.toml                          只改一个 base_url
-~/Library/LaunchAgents/ai.codeultra.local-adapter.plist   随登录自启
-Keychain 条目 code-ultra / checkpoint-key-v1   本机加密检查点的密钥
+~/Library/LaunchAgents/ai.codexultra.local-adapter.plist   随登录自启
+Keychain 条目 codex-ultra / checkpoint-key-v1   本机加密检查点的密钥
 ```
 
 **永远不会动的东西**：你的 API key、聊天记录、模型目录之外的配置、
@@ -122,19 +122,19 @@ python3 configure.py status
 ## 四、日常维护
 
 ```bash
-PY="$HOME/Library/Application Support/Code Ultra/runtime/bin/python"
+PY="$HOME/Library/Application Support/Codex Ultra/runtime/bin/python"
 
 # 看服务日志（不含请求正文和密钥）
-tail -f "$HOME/Library/Application Support/Code Ultra/service.log"
+tail -f "$HOME/Library/Application Support/Codex Ultra/service.log"
 
 # 重启服务
-launchctl kickstart -k "gui/$(id -u)/ai.codeultra.local-adapter"
+launchctl kickstart -k "gui/$(id -u)/ai.codexultra.local-adapter"
 
 # 换了模型想更新目录
 python3 build_catalog.py --gateway https://你的网关地址/v1 --out models.json
 
 # 重启一下，新的图片桥接名单就会生效（不需要重装）
-launchctl kickstart -k "gui/$(id -u)/ai.codeultra.local-adapter"
+launchctl kickstart -k "gui/$(id -u)/ai.codexultra.local-adapter"
 ```
 
 > 服务每次启动都会重新读取 `models.json` 来决定哪些模型需要图片桥接，
@@ -163,18 +163,18 @@ python3 configure.py rollback
 ## 六、卸载
 
 ```bash
-launchctl bootout "gui/$(id -u)/ai.codeultra.local-adapter"
+launchctl bootout "gui/$(id -u)/ai.codexultra.local-adapter"
 python3 configure.py rollback
 ```
 
 然后自行删除：
 
 ```text
-~/Library/Application Support/Code Ultra/
-~/Library/LaunchAgents/ai.codeultra.local-adapter.plist
+~/Library/Application Support/Codex Ultra/
+~/Library/LaunchAgents/ai.codexultra.local-adapter.plist
 ```
 
-Keychain 里的 `code-ultra` 条目可以保留（老对话需要它），确认不需要再删。
+Keychain 里的 `codex-ultra` 条目可以保留（老对话需要它），确认不需要再删。
 
 ---
 
@@ -183,9 +183,9 @@ Keychain 里的 `code-ultra` 条目可以保留（老对话需要它），确认
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `service_not_healthy_route_unchanged` | 服务没起来 | 看 `service-error.log`；常见是端口被占或 Keychain 被拒 |
-| 请求返回 502 | 上游网关拒绝 | 用上面的 `curl` 自检网关；Code Ultra 会把失败原样报出来，不伪造成功 |
-| `api_key_env_not_set` | 没导出密钥 | `export CODE_ULTRA_API_KEY=...` |
-| `requested_model_not_offered:xxx` | 你的 key 看不到这个模型 | 找管理员开权限；Code Ultra 不会替你编一个 |
+| 请求返回 502 | 上游网关拒绝 | 用上面的 `curl` 自检网关；Codex Ultra 会把失败原样报出来，不伪造成功 |
+| `api_key_env_not_set` | 没导出密钥 | `export CODEX_ULTRA_API_KEY=...` |
+| `requested_model_not_offered:xxx` | 你的 key 看不到这个模型 | 找管理员开权限；Codex Ultra 不会替你编一个 |
 | `compactor_model_not_in_catalog:xxx` | 压缩模型不在你网关返回的目录里 | 换一个 `models.json` 里真实存在的模型名，或先重新生成目录 |
 | 模型列表里少了模型 | 网关没返回 | `build_catalog.py` 的摘要会列出实际读到的厂商 |
 | 图片在 Gemini 那里丢了 | 该路由没被识别为需要桥接 | 见 [模型能力表](MODELS.md)，加一条 override |

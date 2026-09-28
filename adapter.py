@@ -15,12 +15,12 @@ from native_checkpoint import NativeCheckpointCache
 from tool_image_bridge import NormalizationError, normalize_request
 
 # These four values are only defaults; a config file may override each of them.
-PREFIX = 'cu1:'
-AAD = b'code-ultra-checkpoint-v1'
+PREFIX = 'cxu1:'
+AAD = b'codex-ultra-checkpoint-v1'
 MAX_BYTES = 64 * 1024 * 1024
 HOP = {'host','content-length','transfer-encoding','connection','keep-alive',
        'proxy-authenticate','proxy-authorization','te','trailer','upgrade','content-encoding'}
-SERVICE = 'code-ultra'
+SERVICE = 'codex-ultra'
 ACCOUNT = 'checkpoint-key-v1'
 EFFORTS = frozenset(('none','low','medium','high','xhigh','max','ultra'))
 KNOWN_INPUT_TYPES = frozenset((
@@ -60,7 +60,7 @@ def read_api_key(cfg):
     2. the CC Switch database, for users who already manage providers there.
        Only the one current record is read, and only its key field is used.
     """
-    name = cfg.get('credential_env') or 'CODE_ULTRA_API_KEY'
+    name = cfg.get('credential_env') or 'CODEX_ULTRA_API_KEY'
     env_key = os.environ.get(name)
     if isinstance(env_key, str) and len(env_key) >= 10:
         return env_key
@@ -467,7 +467,7 @@ class Adapter:
 def handler_for(adapter):
     class Handler(BaseHTTPRequestHandler):
         protocol_version='HTTP/1.0'
-        server_version='CodeUltraAdapter/1'
+        server_version='CodexUltraAdapter/1'
         def log_message(self,*args): pass
         def send_response(self,*args,**kwargs):
             self.response_started=True

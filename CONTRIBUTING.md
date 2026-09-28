@@ -1,6 +1,6 @@
 # 参与贡献
 
-谢谢你有兴趣给 Code Ultra 添点东西。这个项目不大，规矩也简单。
+谢谢你有兴趣给 Codex Ultra 添点东西。这个项目不大，规矩也简单。
 
 [返回主页](README.md) · [安全说明](SECURITY.md) · [English](#english)
 
@@ -58,5 +58,5 @@ _family("VendorName", ("model-prefix-*",),
 Pull requests are welcome in English or Chinese. Run the offline suite first
 (`python3 -m unittest discover -s . -p 'test_*.py'`), keep tests network-free,
 never commit a credential, and prefer failing loudly over guessing. To teach
-Code Ultra about a new vendor, extend `FAMILIES` in `model_presets.py` and add
+Codex Ultra about a new vendor, extend `FAMILIES` in `model_presets.py` and add
 a case to `test_model_presets.py`.
