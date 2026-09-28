@@ -71,6 +71,39 @@ def read_media_models(catalog_path):
     return model_presets.media_models(catalog)
 
 
+def validate_compactor_model(model, catalog_path):
+    """The compactor has to be a model this key was actually shown.
+
+    The catalog is the gateway's own answer to "what do I offer you", so it is
+    the only honest source for this check. A wrong compactor model would
+    otherwise install cleanly and only surface when a long task first needs to
+    compact, which is the worst possible moment to find out. With no catalog
+    supplied the check is skipped rather than guessed.
+    """
+    if not catalog_path:
+        return
+    try:
+        catalog = json.loads(pathlib.Path(catalog_path).read_text())
+    except (OSError, ValueError):
+        _fail("catalog_unreadable")
+    slugs = set()
+    for entry in catalog.get("models") or []:
+        slug = entry.get("slug") if isinstance(entry, dict) else None
+        if isinstance(slug, str) and slug:
+            slugs.add(slug)
+    if model not in slugs:
+        _fail("compactor_model_not_in_catalog:" + str(model))
+
+
+def resolve_provider(config_path, override):
+    """Which config.toml provider key the adapter must read the credential from."""
+    if override:
+        return override
+    import configure as router
+    parsed = router.load_config(config_path)
+    return router.active_provider(parsed)
+
+
 def build_runtime(root, python):
     runtime = root / "runtime"
     if not (runtime / "bin/python").exists():
@@ -170,8 +203,10 @@ def main(argv=None):
         existing = root / "config.json"
         if existing.exists():
             _fail("already_installed_use_configure_status")
+        validate_compactor_model(args.compactor_model, args.catalog)
         python = build_runtime(root, sys.executable)
 
+        provider = resolve_provider(args.codex_config, args.provider)
         config = root / "config.json"
         config.write_text(json.dumps({
             "port": args.port,
@@ -180,6 +215,7 @@ def main(argv=None):
             "compactor_effort": args.compactor_effort,
             "media_models": read_media_models(args.catalog),
             "cc_db": args.cc_switch_db,
+            "credential_provider_id": provider if args.cc_switch_db else None,
             "credential_env": "CODE_ULTRA_API_KEY",
         }, indent=2) + "\n")
         os.chmod(config, 0o600)
@@ -193,9 +229,10 @@ def main(argv=None):
             print(json.dumps({"ok": True, "service": "healthy", "route": "unchanged"}))
             return 0
         route = [python, str(root / "configure.py"), "apply",
-                 "--upstream", upstream, "--local", "http://127.0.0.1:%d" % args.port]
-        if args.provider:
-            route += ["--provider", args.provider]
+                 "--upstream", upstream, "--local", "http://127.0.0.1:%d" % args.port,
+                 "--config", args.codex_config, "--provider", provider]
+        if args.cc_switch_db:
+            route += ["--cc-switch-db", args.cc_switch_db]
         subprocess.run(route, check=True)
     except InstallError as exc:
         print(json.dumps({"ok": False, "code": str(exc)}), file=sys.stderr)

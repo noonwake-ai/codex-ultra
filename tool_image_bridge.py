@@ -184,18 +184,17 @@ def _reject_constant(_value):
     raise BridgeError(400, "invalid_json")
 
 
-def normalize_body(body):
+def normalize_body(body, target_models=None):
     """Preserve raw JSON bytes for every request not actually transformed."""
     try:
         request = json.loads(body, object_pairs_hook=_unique_object,
                              parse_constant=_reject_constant)
         if not isinstance(request, dict):
             raise BridgeError(400, "json_object_required")
-        normalized = normalize_request(request)
+        normalized = normalize_request(request, target_models)
         if normalized is request:
             return body
         return json.dumps(normalized, ensure_ascii=False, allow_nan=False,
                           separators=(",", ":")).encode("utf-8")
     except (UnicodeError, ValueError, RecursionError, OverflowError):
         raise BridgeError(400, "invalid_json") from None
-
