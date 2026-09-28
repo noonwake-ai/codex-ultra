@@ -8,4 +8,5 @@ models.json
 service.log
 service-error.log
 .rollback/
+.render-tmp.html
 .DS_Store

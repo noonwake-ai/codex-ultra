@@ -137,6 +137,43 @@ class SecretScanTests(unittest.TestCase):
                                  "%s advertises %s tests but the suite has %d"
                                  % (doc, match.group(1), actual))
 
+    def test_every_documented_image_exists_and_is_reproducible(self):
+        """A broken image is the fastest way for a README to look abandoned."""
+        import struct
+        docs = ["README.md", "README.en.md", "docs/INSTALL.md", "docs/MODELS.md",
+                "docs/ai-install.md", "docs/ai-install.en.md"]
+        referenced = set()
+        for doc in docs:
+            path = ROOT / doc
+            if not path.exists():
+                continue
+            text = path.read_text()
+            for match in re.finditer(r'<img\s+src="([^"]+)"', text):
+                target = match.group(1)
+                if target.startswith(("http://", "https://")):
+                    continue
+                referenced.add(target)
+                with self.subTest(doc=doc, image=target):
+                    resolved = (path.parent / target).resolve()
+                    self.assertTrue(resolved.is_file(), "%s points at a missing %s"
+                                    % (doc, target))
+        # The illustrations are generated, so the generator must ship with them.
+        self.assertTrue((ROOT / "docs/assets/src/render_assets.py").is_file(),
+                        "illustration source is missing; the PNGs become unreproducible")
+        for name in ("model-picker.zh.png", "model-picker.en.png",
+                     "compaction.zh.png", "compaction.en.png"):
+            with self.subTest(asset=name):
+                data = (ROOT / "docs/assets" / name).read_bytes()
+                self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+                width, height = struct.unpack(">II", data[16:24])
+                self.assertGreater(width, 800, name + " is too small to read")
+                self.assertGreater(height, 200, name + " is too small to read")
+        self.assertEqual(referenced, {
+            "docs/assets/banner.svg",
+            "docs/assets/model-picker.zh.png", "docs/assets/model-picker.en.png",
+            "docs/assets/compaction.zh.png", "docs/assets/compaction.en.png"},
+            "a documented image disappeared without the docs being updated")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

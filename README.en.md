@@ -13,7 +13,7 @@ skills, tool calling and images included.
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-152%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-153%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [How it works](#how-it-works) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -68,9 +68,19 @@ Codex ──────────────────► GPT      Codex �
 Pick DeepSeek or Gemini in the Codex model list and **run a long task until the
 context fills up. Compaction still works, the task continues, nothing returns 502.**
 
+Open the model picker in the bottom-right corner of Codex and you see everything
+your gateway offers, each with its real context window — the eye icon marks the
+routes that take images:
+
+<img src="docs/assets/model-picker.en.png" alt="Switching between DeepSeek, Gemini, Claude, Grok, MiniMax, Kimi and GLM in the Codex model picker" width="820">
+
 ---
 
 ## What it genuinely fixes
+
+The same action, two very different endings:
+
+<img src="docs/assets/compaction.en.png" alt="Left: compaction returns 502 without Codex Ultra. Right: compaction happens locally and the task continues." width="820">
 
 | Pain | Without Codex Ultra | With Codex Ultra |
 |---|---|---|

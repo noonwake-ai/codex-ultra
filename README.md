@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-152%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-153%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [工作原理](#工作原理) · [常见问题](#常见问题) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -61,9 +61,18 @@ Codex ──────────────────► GPT      Codex �
 装完之后，你在 Codex 的模型列表里直接选 DeepSeek 或者 Gemini，
 **长任务跑到上下文满，它照常自动压缩、接着干活**，不会 502，不会丢任务。
 
+点开 Codex 右下角的模型选择器，你网关里有什么，列表里就有什么——
+每个模型后面标着它真实的上下文窗口，支持图片的会显示眼睛图标：
+
+<img src="docs/assets/model-picker.zh.png" alt="在 Codex 的模型选择器里切换 DeepSeek、Gemini、Claude、Grok、MiniMax、Kimi、GLM" width="820">
+
 ---
 
 ## 它究竟替你修好了什么
+
+同样的操作，两条路走到完全不同的地方：
+
+<img src="docs/assets/compaction.zh.png" alt="左边：没有 Codex Ultra 时压缩返回 502；右边：装上之后压缩在本机完成，任务继续" width="820">
 
 | 痛点 | 没有 Codex Ultra | 有 Codex Ultra |
 |---|---|---|
