@@ -375,4 +375,5 @@ In plain words:
   your own application code are unaffected by this license.
 
 The full legal text is in [LICENSE](LICENSE). LGPL-3.0 incorporates the terms of
-GPL-3.0 by reference; that text is in [COPYING](COPYING).
+GPL-3.0 by reference; that text is in [GPL-3.0.txt](GPL-3.0.txt), and the
+copyright and scope notice is in [NOTICE](NOTICE).

@@ -37,7 +37,7 @@ BRAND = re.compile(r"noonwake", re.I)
 DOCS = {"README.md", "README.en.md", "LICENSE",
         "docs/INSTALL.md", "docs/MODELS.md",
         "docs/ai-install.md", "docs/ai-install.en.md",
-        "CONTRIBUTING.md", "SECURITY.md"}
+        "CONTRIBUTING.md", "SECURITY.md", "NOTICE"}
 # This file necessarily contains the patterns it searches for.
 SELF = "test_secret_scan.py"
 

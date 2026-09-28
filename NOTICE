@@ -1,0 +1,14 @@
+Code Ultra
+Copyright (C) 2026 NoonWake AI
+
+This project is licensed under the GNU Lesser General Public License, version 3
+or (at your option) any later version.
+
+  LICENSE        GNU Lesser General Public License v3 — the license that applies
+  GPL-3.0.txt    GNU General Public License v3, whose terms LGPL-3.0 incorporates
+                 by reference and which a distribution must therefore include
+
+In plain words: use it freely, including commercially. If you distribute a
+modified version of Code Ultra itself, those modifications must be released under
+LGPL-3.0 as well. The models you connect, your gateway configuration and your own
+code are unaffected.
