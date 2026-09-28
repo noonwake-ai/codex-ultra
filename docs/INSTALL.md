@@ -129,10 +129,14 @@ python3 configure.py status
 {
   "provider": "你的供应商",
   "endpoint": "http://127.0.0.1:15731",
+  "expected_local_endpoint": "http://127.0.0.1:15731",
   "routed_locally": true,
   "rollback_record": true
 }
 ```
+
+`routed_locally` 为 `true` 就说明请求已经走本机适配层了。
+如果你安装时换了端口，这里显示的是你那个端口，不影响判断。
 
 再打开 Codex 新开一个对话，随便问一句。能正常回复就说明链路通了。
 
