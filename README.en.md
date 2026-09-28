@@ -13,7 +13,7 @@ skills, tool calling and images included.
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-146%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-149%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [How it works](#how-it-works) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -114,7 +114,9 @@ Adding a vendor takes one line in [`model_presets.py`](model_presets.py). PRs we
 ### What you need
 
 1. **A macOS machine** (uses the built-in Keychain and launchd for a per-user service)
-2. **Python 3.11 or newer** (`python3 --version`)
+2. **Python 3.11 or newer** — note that macOS ships 3.9, which is too old.
+   Check `python3 --version`; if it is too old run `brew install python@3.12` and
+   use `python3.12` in the commands below
 3. **A gateway** exposing the OpenAI Responses API plus a `/models` catalog — for example your own [Sub2API](https://github.com/Wei-Shaw/sub2api)
 4. **One compaction model**: whichever model you want summarizing context, ideally cheap and fast
 5. **[CC Switch](https://github.com/farion1231/cc-switch), optional**: if it manages your providers, Codex Ultra keeps its record in sync so switching providers will not disable the adapter

@@ -19,6 +19,31 @@ CONFIG = (
 
 
 class UpstreamTests(unittest.TestCase):
+
+    def test_old_python_hint_names_the_required_version(self):
+        """A stock macOS Python is 3.9; the user has to be told what to do."""
+        hint = install.OLD_PYTHON_HINT % (3, 9)
+        self.assertIn("3.9", hint)
+        self.assertIn("3.11", hint)
+        self.assertIn("brew", hint)
+        self.assertIn("python.org", hint)
+
+    def test_install_error_carries_an_optional_hint(self):
+        plain = install.InstallError("some_code")
+        self.assertEqual((plain.code, plain.hint, str(plain)), ("some_code", None, "some_code"))
+        helped = install.InstallError("other_code", "do this")
+        self.assertEqual((helped.code, helped.hint), ("other_code", "do this"))
+
+    def test_environment_refusals_are_reported_as_json_not_a_traceback(self):
+        """A refusal has to print a reason, so the checks must sit inside the handler."""
+        source = (install.HERE / "install.py").read_text()
+        body = source.split("def main(", 1)[1]
+        try_at = body.index("    try:")
+        version_at = body.index("python_3_11_or_newer_required")
+        platform_at = body.index("macos_required_for_the_launchagent_installer")
+        self.assertLess(try_at, version_at, "version check must be inside the try block")
+        self.assertLess(try_at, platform_at, "platform check must be inside the try block")
+
     def test_https_is_required(self):
         with self.assertRaises(install.InstallError) as raised:
             install.validate_upstream("http://gateway.example/v1")

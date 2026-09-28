@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-146%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-149%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [工作原理](#工作原理) · [常见问题](#常见问题) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -105,7 +105,9 @@ Codex Ultra 不绑定厂商，**你网关里有什么，你就能用什么**。
 ### 你需要准备什么
 
 1. **一台 macOS 电脑**（用系统自带的 Keychain 和 launchd 守护进程，随登录自启）
-2. **Python 3.11 或更高**（`python3 --version` 看一眼）
+2. **Python 3.11 或更高** —— 注意 macOS 自带的是 3.9，不够用。
+   `python3 --version` 看一眼；不够就 `brew install python@3.12`，
+   然后命令里的 `python3` 换成 `python3.12`
 3. **一个网关地址**：任何实现了 OpenAI Responses 接口、并且有 `/models` 目录的网关，比如你自己跑的 [Sub2API](https://github.com/Wei-Shaw/sub2api)
 4. **至少一个压缩模型**：Codex Ultra 用它来帮你压缩上下文，选一个你额度充足、反应快的
 5. **[CC Switch](https://github.com/farion1231/cc-switch) 可选**：它在管你的供应商配置的话，Codex Ultra 会顺带同步，切换供应商时不会被覆盖

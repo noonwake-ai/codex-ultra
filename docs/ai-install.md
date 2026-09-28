@@ -25,7 +25,15 @@ python3 --version                # 需要 3.11 或更新
 git --version
 ```
 
-任何一项不满足，**停下来告诉用户缺什么**，不要试图绕过去。
+**注意 macOS 自带的是 Python 3.9，通常不满足要求。** 如果 `python3 --version`
+显示 3.9，按下面顺序处理：
+
+1. 先看有没有更新的解释器：`ls /opt/homebrew/bin/python3.* /usr/local/bin/python3.* 2>/dev/null`
+2. 有的话直接用那个（例如 `python3.12 install.py ...`），不要装新的
+3. 没有的话，**问用户**要不要装一个。他同意后用 `brew install python@3.12`，
+   没有 Homebrew 就引导他去 <https://www.python.org/downloads/>
+
+任何一项不满足且无法解决，**停下来告诉用户缺什么**，不要试图绕过去。
 特别提醒：非 macOS 只能手动跑适配层，没有一键安装，如实说明。
 
 ---

@@ -24,6 +24,17 @@
 | 压缩模型 | 至少一个你额度充足的模型 | 在网关里能看到即可 |
 | 磁盘 | 约 300 MB（含依赖和 tokenizer 缓存） | 安装脚本会告诉你 |
 
+> **macOS 自带的 Python 是 3.9，不够用。** 先跑 `python3 --version` 看一眼。
+> 如果显示 3.9，用下面任一方式装个新的，然后用新解释器执行后面的命令：
+>
+> ```bash
+> ls /opt/homebrew/bin/python3.* /usr/local/bin/python3.*   # 说不定你已经有了
+> brew install python@3.12                                   # 或者用 Homebrew 装
+> ```
+>
+> 没有 Homebrew 就去 <https://www.python.org/downloads/> 下载安装包。
+> 装好后命令里的 `python3` 换成 `python3.12` 即可。
+
 ### 网关自检
 
 在装之前先确认你的网关是这个形状的：

@@ -45,9 +45,23 @@ SOURCES = (
 class InstallError(Exception):
     """Fixed, non-sensitive failure code."""
 
+    def __init__(self, code, hint=None):
+        super().__init__(code)
+        self.code = code
+        self.hint = hint
 
-def _fail(code):
-    raise InstallError(code)
+
+def _fail(code, hint=None):
+    raise InstallError(code, hint)
+
+
+# The system Python on a stock macOS is 3.9, which is too old. Say exactly that
+# instead of letting the user guess why the installer refuses to start.
+OLD_PYTHON_HINT = (
+    "Found Python %d.%d, but Codex Ultra needs 3.11 or newer. Install one and "
+    "run that interpreter instead, for example: `brew install python@3.12` then "
+    "`python3.12 install.py ...`, or grab it from https://www.python.org/downloads/"
+)
 
 
 def validate_upstream(url):
@@ -195,12 +209,17 @@ def main(argv=None):
                         help="install the service but leave Codex pointing at the gateway")
     args = parser.parse_args(argv)
 
-    if sys.version_info < (3, 11):
-        _fail("python_3_11_or_newer_required")
-    if not sys.platform == "darwin":
-        _fail("macos_required_for_the_launchagent_installer")
-
     try:
+        # Environment checks belong inside the handler: refusing to run must read
+        # as a one-line reason, not as a traceback the user has to decode.
+        if sys.version_info < (3, 11):
+            _fail("python_3_11_or_newer_required",
+                  OLD_PYTHON_HINT % sys.version_info[:2])
+        if sys.platform != "darwin":
+            _fail("macos_required_for_the_launchagent_installer",
+                  "The adapter itself runs anywhere, but the one-command installer "
+                  "uses the macOS Keychain and launchd. Run adapter.py by hand on "
+                  "other systems.")
         upstream = validate_upstream(args.upstream)
         root = pathlib.Path(args.root).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
@@ -254,7 +273,10 @@ def main(argv=None):
         if subprocess.run(route).returncode != 0:
             _fail("routing_step_failed")
     except InstallError as exc:
-        print(json.dumps({"ok": False, "code": str(exc)}), file=sys.stderr)
+        payload = {"ok": False, "code": exc.code}
+        if exc.hint:
+            payload["hint"] = exc.hint
+        print(json.dumps(payload), file=sys.stderr)
         return 2
     except subprocess.CalledProcessError as exc:
         print(json.dumps({"ok": False, "code": "step_failed",

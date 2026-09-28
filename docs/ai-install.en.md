@@ -26,7 +26,16 @@ python3 --version                # Python 3.11 or newer
 git --version
 ```
 
-If any of these fails, **stop and tell the user what is missing.** Do not work around it.
+**A stock macOS ships Python 3.9, which is usually too old here.** If `python3 --version`
+prints 3.9, work through this in order:
+
+1. Look for a newer interpreter already installed:
+   `ls /opt/homebrew/bin/python3.* /usr/local/bin/python3.* 2>/dev/null`
+2. If one exists, use it (for example `python3.12 install.py ...`); do not install anything new
+3. If none exists, **ask the user first**, then `brew install python@3.12`, or point them at
+   <https://www.python.org/downloads/>
+
+If something is missing and cannot be resolved, **stop and tell the user.** Do not work around it.
 On non-macOS systems the adapter can still be run by hand, but there is no one-command
 installer — say so honestly.
 
