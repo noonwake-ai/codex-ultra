@@ -26,6 +26,7 @@ import sqlite3
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 try:
     import tomli as tomllib
@@ -174,11 +175,16 @@ def main(argv=None):
         record = Path(args.rollback_record)
 
         if args.action == "status":
+            endpoint = parsed["model_providers"][provider].get("base_url")
+            # "Routed locally" means the requests go to a loopback adapter, which is
+            # the question the user is actually asking. Comparing against a hardcoded
+            # default port reported false for a perfectly working custom-port install.
+            host = urlsplit(endpoint or "").hostname
             print(json.dumps({
                 "provider": provider,
-                "endpoint": parsed["model_providers"][provider].get("base_url"),
-                "local_endpoint": args.local,
-                "routed_locally": parsed["model_providers"][provider].get("base_url") == args.local,
+                "endpoint": endpoint,
+                "expected_local_endpoint": args.local,
+                "routed_locally": host in ("127.0.0.1", "localhost", "::1"),
                 "rollback_record": record.exists(),
             }, ensure_ascii=False, indent=2))
             return 0

@@ -98,6 +98,24 @@ class ConfigureTests(unittest.TestCase):
         self.assertFalse(json.loads(out)["routed_locally"])
         self.assertEqual(self.config.read_text(), ORIGINAL)
 
+    def test_status_calls_a_custom_port_install_routed_locally(self):
+        """A working install on another port must not look broken."""
+        self.config.write_text(ORIGINAL.replace(
+            "https://gateway.example/v1", "http://127.0.0.1:15841"))
+        code, out = self.run_cli(*self.base("status", local="http://127.0.0.1:15731"))
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertTrue(payload["routed_locally"])
+        self.assertEqual(payload["endpoint"], "http://127.0.0.1:15841")
+
+    def test_status_does_not_claim_a_remote_endpoint_is_local(self):
+        for endpoint in ("https://gateway.example/v1", "https://remote.example/v1"):
+            with self.subTest(endpoint=endpoint):
+                self.config.write_text(ORIGINAL.replace(
+                    "https://gateway.example/v1", endpoint))
+                code, out = self.run_cli(*self.base("status"))
+                self.assertFalse(json.loads(out)["routed_locally"])
+
     def test_provider_can_be_selected_explicitly(self):
         self.config.write_text(ORIGINAL.replace('model_provider = "MyGateway"', "")
                                + '\n[model_providers.Second]\nbase_url = "https://second.example/v1"\n')
