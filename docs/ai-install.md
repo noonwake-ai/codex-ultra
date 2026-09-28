@@ -144,6 +144,8 @@ curl -s http://127.0.0.1:15731/health
    python3 configure.py rollback
    ```
    只还原那一行网络地址，他之后改的其它配置一个都不会动。
+   安装器结束时会打印一条带完整路径的 `rollback_command`——**把那条原样转述给用户**，
+   他以后就不用记路径了。
 3. **密钥和聊天记录没被动过。** Codex Ultra 只做转发，不改密钥、不碰历史。
 4. **出问题找谁**：把报错贴回 GitHub issue。
 

@@ -131,6 +131,17 @@ class SourceTests(unittest.TestCase):
         source = (install.HERE / "install.py").read_text()
         self.assertIn("already_installed_use_configure_status", source)
 
+    def test_rollback_record_lives_under_the_chosen_root(self):
+        """--root has to own every artifact, or isolation is a lie."""
+        source = (install.HERE / "install.py").read_text()
+        self.assertIn('root / "routing-rollback.json"', source)
+        self.assertIn('"--rollback-record"', source)
+
+    def test_installer_prints_the_exact_rollback_command(self):
+        source = (install.HERE / "install.py").read_text()
+        self.assertIn("rollback_command", source)
+        self.assertIn("rollback_record", source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

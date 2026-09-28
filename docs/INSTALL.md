@@ -163,6 +163,17 @@ python3 configure.py rollback
 
 它只还原那一个 `base_url`，**之后你对配置做的其它改动一律保留**。
 
+回滚记录写在 `~/Library/Application Support/Codex Ultra/routing-rollback.json`，
+里面只有供应商名、两个地址和一个校验值——**不含任何密钥**。
+如果你安装时用了自定义 `--root`，安装结束时会直接打印出带路径的准确回滚命令，
+照抄即可：
+
+```json
+{
+  "rollback_command": ".../configure.py rollback --rollback-record .../routing-rollback.json"
+}
+```
+
 > 注意：回滚**不会删除**本机的加密检查点。含有检查点的老对话仍然需要这个服务来读取，
 > 所以不要急着删服务目录。想彻底清理的话，先确认不再需要那些老对话。
 

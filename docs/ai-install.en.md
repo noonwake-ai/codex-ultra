@@ -153,6 +153,8 @@ You should see `"status":"ok"` and the currently effective `media_models` list.
    python3 configure.py rollback
    ```
    That restores the single network address and leaves every other change they made intact.
+   The installer prints a `rollback_command` with the full path — **relay that exact line to
+   the user** so they never have to remember paths.
 3. **Their key and chat history were not touched.** Codex Ultra forwards and reshapes
    requests; it does not modify credentials or history.
 4. **Where to complain:** paste the error into a GitHub issue.

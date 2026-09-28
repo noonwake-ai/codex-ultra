@@ -185,6 +185,9 @@ def main(argv=None):
     parser.add_argument("--root", default=str(DEFAULT_ROOT))
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--label", default=DEFAULT_LABEL)
+    parser.add_argument("--rollback-record",
+                        help="where to record how to undo the routing change "
+                             "(default: <root>/routing-rollback.json)")
     parser.add_argument("--codex-config", default=str(pathlib.Path.home() / ".codex/config.toml"))
     parser.add_argument("--provider", help="provider key in config.toml (default: current)")
     parser.add_argument("--cc-switch-db", default=None)
@@ -216,6 +219,8 @@ def main(argv=None):
         python = build_runtime(root, sys.executable)
 
         provider = resolve_provider(args.codex_config, args.provider)
+        record = (pathlib.Path(args.rollback_record).expanduser().resolve()
+                  if args.rollback_record else root / "routing-rollback.json")
         config = root / "config.json"
         config.write_text(json.dumps({
             "port": args.port,
@@ -242,7 +247,8 @@ def main(argv=None):
             return 0
         route = [python, str(root / "configure.py"), "apply",
                  "--upstream", upstream, "--local", "http://127.0.0.1:%d" % args.port,
-                 "--config", args.codex_config, "--provider", provider]
+                 "--config", args.codex_config, "--provider", provider,
+                 "--rollback-record", str(record)]
         if args.cc_switch_db:
             route += ["--cc-switch-db", args.cc_switch_db]
         if subprocess.run(route).returncode != 0:
@@ -255,8 +261,15 @@ def main(argv=None):
                           "command": pathlib.Path(exc.cmd[0]).name}), file=sys.stderr)
         return 2
 
-    print(json.dumps({"ok": True, "service": "healthy", "route": "local adapter",
-                      "next": "start a new Codex chat or restart Codex"}, ensure_ascii=False))
+    print(json.dumps({
+        "ok": True,
+        "service": "healthy",
+        "route": "local adapter",
+        "rollback_record": str(record),
+        "rollback_command": "%s %s rollback --rollback-record %s"
+                            % (python, root / "configure.py", record),
+        "next": "start a new Codex chat or restart Codex",
+    }, ensure_ascii=False, indent=2))
     return 0
 
 
