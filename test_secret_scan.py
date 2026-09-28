@@ -35,7 +35,8 @@ INTERNAL_PATTERNS = (
 BRAND = re.compile(r"noonwake", re.I)
 # Documentation may credit the public organisation that publishes the project.
 DOCS = {"README.md", "README.en.md", "LICENSE",
-        "docs/INSTALL.md", "docs/MODELS.md"}
+        "docs/INSTALL.md", "docs/MODELS.md",
+        "CONTRIBUTING.md", "SECURITY.md"}
 # This file necessarily contains the patterns it searches for.
 SELF = "test_secret_scan.py"
 

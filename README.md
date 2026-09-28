@@ -12,9 +12,9 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-118%20passing-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-133%20offline-brightgreen.svg?style=flat-square)](#测试)
 
-[English](README.en.md) · [安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [工作原理](#工作原理) · [常见问题](#常见问题)
+[English](README.en.md) · [安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [工作原理](#工作原理) · [常见问题](#常见问题) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
 </div>
 
@@ -64,7 +64,7 @@ Code Ultra 不绑定厂商，**你网关里有什么，你就能用什么**。
 
 | 厂商 | 代表模型 | 图片 | 长上下文 |
 |---|---|:---:|:---:|
-| **DeepSeek** | `deepseek-*` |  | 100 万级别，不加价 |
+| **DeepSeek** | `deepseek-*` |  | 100 万级别 |
 | **Google** | `gemini-*` | 是 | 100 万级别 |
 | **Anthropic** | `claude-*` | 是 | 20 万 / 100 万 |
 | **xAI** | `grok-*` | 是 | 20 万以上 |
@@ -194,7 +194,8 @@ python3 -m unittest discover -s . -p 'test_*.py'
 <details>
 <summary><b>为什么默认要用满上下文窗口？</b></summary>
 
-因为很多厂商（比如 DeepSeek）长上下文不加价。既然不用多花钱，
+因为不少厂商的长上下文并不额外计费（DeepSeek 目前就是如此）。
+既然不用多花钱，
 就没必要人为砍一半，白白浪费模型能力。
 如果某个厂商的长上下文是加价档，把策略改成 `standard` 并设一个上限就行，
 见 [模型能力表](docs/MODELS.md)。

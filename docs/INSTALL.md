@@ -51,12 +51,13 @@ python3 build_catalog.py \
 ```
 
 它会打印一份摘要：读到多少个模型、分别属于哪些厂商、哪些模型需要图片桥接。
+下面的数字只是示例形状，实际以你网关读到的为准。
 
 ```json
 {
   "ok": true,
-  "models": 11,
-  "by_vendor": {"Anthropic": 2, "DeepSeek": 1, "Google": 1, "OpenAI": 5, "xAI": 2},
+  "models": 8,
+  "by_vendor": {"Anthropic": 1, "DeepSeek": 2, "Google": 1, "OpenAI": 3, "xAI": 1},
   "media_bridge_models": ["gemini-3.8-flash"]
 }
 ```
@@ -70,7 +71,8 @@ python3 install.py \
   --compactor-effort medium
 ```
 
-`--compactor-model` 就是以后帮你压缩上下文的模型。建议选一个快、便宜、额度足的。
+`--compactor-model` 就是以后帮你压缩上下文的模型，**要填你网关里真实存在的模型名**。
+建议选一个快、便宜、额度足的；写错了会在安装时直接报错，不会静默降级。
 
 CC Switch 用户加一个参数，避免下次切供应商时把适配层切掉：
 
@@ -173,6 +175,7 @@ Keychain 里的 `code-ultra` 条目可以保留（老对话需要它），确认
 | 请求返回 502 | 上游网关拒绝 | 用上面的 `curl` 自检网关；Code Ultra 会把失败原样报出来，不伪造成功 |
 | `api_key_env_not_set` | 没导出密钥 | `export CODE_ULTRA_API_KEY=...` |
 | `requested_model_not_offered:xxx` | 你的 key 看不到这个模型 | 找管理员开权限；Code Ultra 不会替你编一个 |
+| `compactor_model_not_in_catalog:xxx` | 压缩模型不在你网关返回的目录里 | 换一个 `models.json` 里真实存在的模型名，或先重新生成目录 |
 | 模型列表里少了模型 | 网关没返回 | `build_catalog.py` 的摘要会列出实际读到的厂商 |
 | 图片在 Gemini 那里丢了 | 该路由没被识别为需要桥接 | 见 [模型能力表](MODELS.md)，加一条 override |
 | 切了供应商之后不生效 | CC Switch 的记录覆盖了配置 | 安装时加 `--cc-switch-db`，或重新 `configure.py apply` |

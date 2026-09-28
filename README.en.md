@@ -13,9 +13,9 @@ skills, tool calling and images included.
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-118%20passing-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-133%20offline-brightgreen.svg?style=flat-square)](#tests)
 
-[简体中文](README.md) · [Install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [How it works](#how-it-works)
+[简体中文](README.md) · [Install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [How it works](#how-it-works) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 </div>
 
@@ -67,7 +67,7 @@ Built-in policy families:
 
 | Vendor | Slugs | Images | Long context |
 |---|---|:---:|:---:|
-| **DeepSeek** | `deepseek-*` |  | 1M class, no surcharge |
+| **DeepSeek** | `deepseek-*` |  | 1M class |
 | **Google** | `gemini-*` | Yes | 1M class |
 | **Anthropic** | `claude-*` | Yes | 200K / 1M |
 | **xAI** | `grok-*` | Yes | 200K+ |
@@ -200,7 +200,8 @@ need them.
 <details>
 <summary><b>Why default to the full context window?</b></summary>
 
-Because several vendors charge nothing extra for long input — DeepSeek among them.
+Because a number of vendors charge nothing extra for long input, DeepSeek among
+them at the time of writing.
 If it costs the same, there is no reason to throw away half the model's capacity.
 For vendors that do surcharge long context, switch the policy to `standard` with a
 cap; see [model policy](docs/MODELS.md).
