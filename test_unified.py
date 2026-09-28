@@ -323,6 +323,26 @@ class PrepareForwardTests(OfflineCase):
                 with self.subTest(module=module.__name__, name=name):
                     self.assertTrue(hasattr(module, name))
 
+    def test_structurally_invalid_checkpoints_are_refused(self):
+        """A payload that decrypts but is not task state must not be trusted."""
+        cases = {
+            "wrong version": {"version": 99, "summary": "synthetic", "retained": []},
+            "summary not text": {"version": 2, "summary": ["synthetic"], "retained": []},
+            "retained not list": {"version": 2, "summary": "synthetic", "retained": {}},
+        }
+        for label, payload in cases.items():
+            with self.subTest(case=label):
+                item = {"type": "compaction", "id": "cmp_synthetic",
+                        "encrypted_content": self.adapter.seal(payload)}
+                with self.assertRaises(ValueError):
+                    self.adapter.expand([item], "deepseek-flash")
+
+    def test_a_valid_checkpoint_is_still_accepted(self):
+        good = self.checkpoint([{"type": "message", "role": "user",
+                                 "content": [{"type": "input_text", "text": "kept"}]}])
+        expanded = self.adapter.expand([good], "deepseek-flash")
+        self.assertTrue(any(item.get("type") == "message" for item in expanded))
+
 
 class HTTPTests(OfflineCase):
     def setUp(self):

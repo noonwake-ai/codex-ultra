@@ -162,6 +162,21 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(self.config.read_text(), ORIGINAL)
         self.assertFalse(self.record.exists())
 
+    def test_an_edit_made_during_the_command_is_never_overwritten(self):
+        """Another tool writing config.toml mid-command must win, not be clobbered."""
+        self.cc_switch_db_with([("MyGateway", {"auth": {}, "config": ORIGINAL})])
+        external = ORIGINAL.replace('model = "deepseek-v4-flash"', 'model = "edited-elsewhere"')
+
+        def edit_then_continue(*_args, **_kwargs):
+            self.config.write_text(external)
+            return {"config": ORIGINAL}
+
+        with patch.object(configure, "cc_switch_plan", side_effect=edit_then_continue):
+            code, _ = self.run_cli(*self.base("apply", upstream="https://gateway.example/v1",
+                                              cc_switch_db=self.db))
+        self.assertEqual(code, 2)
+        self.assertEqual(self.config.read_text(), external)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
