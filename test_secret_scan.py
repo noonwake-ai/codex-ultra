@@ -45,7 +45,9 @@ PUBLIC_URL_ALLOW = re.compile(
     r"https?://(?:"
     r"github\.com|img\.shields\.io|shields\.io|api\.star-history\.com|"
     r"www\.python\.org|docs\.python\.org|pypi\.org|opensource\.org|"
-    r"raw\.githubusercontent\.com|www\.w3\.org|127\.0\.0\.1|localhost)[/:]")
+    r"raw\.githubusercontent\.com|www\.w3\.org|127\.0\.0\.1|localhost|"
+    # The canonical license texts in LICENSE and COPYING link back to the FSF.
+    r"www\.gnu\.org|gnu\.org|fsf\.org)[/:]")
 ALLOWED_HOST_SUFFIXES = (".invalid", ".example", ".test", "example.com")
 
 

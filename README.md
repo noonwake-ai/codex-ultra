@@ -9,7 +9,7 @@
 别再一辈子只抱着 GPT 了。DeepSeek、Gemini、Claude、Grok、MiniMax、Kimi、GLM——
 接进来，然后在 Codex 里当原生模型用：自动压缩、Skill、工具调用、图片，一样不少。
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
 [![Tests](https://img.shields.io/badge/Tests-153%20offline-brightgreen.svg?style=flat-square)](#测试)
@@ -341,4 +341,14 @@ Codex Ultra 不包含也不修改它们的代码，只是跟它们配合工作�
 
 ## 许可证
 
-[MIT](LICENSE) © NoonWake AI
+[LGPL-3.0](LICENSE) © NoonWake AI
+
+说人话的版本：
+
+- **随便用。** 个人、公司、商业项目都能用，不需要付费，不需要公开你自己的代码。
+- **改了就分享改动。** 如果你修改了 Codex Ultra 并把改过的版本**分发**给别人，
+  这份改动也要以 LGPL-3.0 开源。只是自己本地改着用，没有任何义务。
+- **不传染。** 你用它连接的模型、你的网关配置、你自己的应用代码，都不受这个许可证影响。
+
+完整的法律文本见 [LICENSE](LICENSE)。LGPL-3.0 通过引用并入 GPL-3.0 的条款，
+后者的全文在 [COPYING](COPYING)。

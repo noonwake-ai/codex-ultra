@@ -10,7 +10,7 @@ Stop being stuck with one vendor. Bring DeepSeek, Gemini, Claude, Grok, MiniMax,
 Kimi and GLM into Codex and use them like native models — automatic compaction,
 skills, tool calling and images included.
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
 [![Tests](https://img.shields.io/badge/Tests-153%20offline-brightgreen.svg?style=flat-square)](#tests)
@@ -362,4 +362,17 @@ Codex Ultra neither bundles nor modifies their code; it works alongside them.
 
 ## License
 
-[MIT](LICENSE) © NoonWake AI
+[LGPL-3.0](LICENSE) © NoonWake AI
+
+In plain words:
+
+- **Use it freely.** Personal, company and commercial projects, at no cost, with no
+  obligation to publish your own code.
+- **Share your changes.** If you modify Code Ultra and *distribute* the modified
+  version, those changes must be released under LGPL-3.0 as well. Local
+  modifications that never leave your machine carry no obligation.
+- **It does not spread.** The models you connect, your gateway configuration and
+  your own application code are unaffected by this license.
+
+The full legal text is in [LICENSE](LICENSE). LGPL-3.0 incorporates the terms of
+GPL-3.0 by reference; that text is in [COPYING](COPYING).
