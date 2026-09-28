@@ -85,6 +85,47 @@ COPY = {
                  ("Computer Use", "不受影响"), ("Memory", "不受影响"), ("Sub Agent", "不受影响"),
                  ("自动压缩", "由你指定的模型接管"), ("图片", "支持的模型照常送图")],
         "caps_note": "适配层不改动 Codex 下发的工具声明、指令和这些能力所需的字段，转发时原样保留——测试钉住了这一点。至于模型能不能真正驱动它们，取决于模型自身：文本模型不会因为装了 Codex Ultra 就获得视觉，但它不会再因为一张图把整个请求搞崩。Codex Ultra 做的是让 Codex 正确认识每个模型能干什么。",
+        "arch_title": "它站在哪",
+        "arch_side": "本机",
+        "arch_codex": "Codex",
+        "arch_codex_sub": "桌面端 / CLI",
+        "arch_ultra": "Codex Ultra",
+        "arch_ultra_sub": "127.0.0.1 本地进程",
+        "arch_jobs": ["压缩接管", "加密检查点", "工具图片配对", "能力目录"],
+        "arch_gw": "Sub2API 网关",
+        "arch_gw_sub": "或任何 Responses 兼容网关",
+        "arch_note": "密钥不出本机 · 不改聊天记录 · 只动配置里一个 base_url",
+        "cost_title": "装它要付出什么",
+        "cost_stats": [("1", "个本地进程"), ("5", "个 Python 包"), ("3", "条命令"), ("0", "前端 / Node / Docker / 数据库")],
+        "cost_left": "安装后落在哪",
+        "cost_paths": [("~/Library/Application Support/Codex Ultra/", "服务本体 + 依赖，权限 700"),
+                        ("~/.codex/config.toml", "只改一个 base_url"),
+                        ("~/Library/LaunchAgents/…plist", "随登录自启")],
+        "cost_right": "不满意怎么退",
+        "cost_rollback": ["python3 configure.py rollback", "只还原那一个网络地址", "你之后的其它改动一律保留"],
+        "cost_scale": "约 2,300 行 Python · 153 项离线测试 · CI 覆盖 Python 3.11/3.12/3.13",
+        "cmp_title": "和别的方案比",
+        "cmp_left": "Codex Ultra",
+        "cmp_right": "OpenCodex",
+        "cmp_rows": [("核心定位", "贴在 Codex 上的适配层", "通用供应商代理"),
+                      ("运行形态", "本地 Python 进程", "Node 运行时"),
+                      ("界面", "用 Codex 自己的", "自带 Web 面板"),
+                      ("依赖", "5 个 Python 包", "Node 18+ / 可选 Docker"),
+                      ("强项", "压缩接管 · 工具图片 · 原生体验", "账号池 · 配额路由 · 多客户端")],
+        "cmp_note": "不是替代关系。要中枢管多家账号选右边，已有顺手的网关、只想让 Codex 少一步切换选左边。",
+        "cmp_warn": "两者都改同一个 base_url，同一个供应商记录上只能跑一个。",
+        "mx_title": "支持的模型",
+        "mx_sub": "网关里有什么，就能用什么；下面是内置策略的厂商家族",
+        "mx_cols": ("厂商", "代表模型", "图片", "长上下文"),
+        "mx_rows": [("DeepSeek", "deepseek-*", False, "1M 级"),
+                     ("Google", "gemini-*", True, "1M 级"),
+                     ("Anthropic", "claude-*", True, "200K / 1M"),
+                     ("xAI", "grok-*", True, "200K+"),
+                     ("MiniMax", "minimax-* / m2-*", True, "1M 级"),
+                     ("Moonshot", "kimi-* / k2*", False, "256K 级"),
+                     ("Zhipu", "glm-*", False, "128K+"),
+                     ("OpenAI", "gpt-*", True, "原生直通")],
+        "mx_note": "数值永远以你的网关为准；Codex Ultra 不会凭空造模型，也不会擅自缩窗口。加一个厂商＝改 model_presets.py 一行。",
     },
     "en": {
         "window_title": "Codex",
@@ -117,6 +158,47 @@ COPY = {
                  ("Auto-compaction", "served by the model you pick"),
                  ("Images", "routed to models that take them")],
         "caps_note": "The adapter does not rewrite the tool declarations, instructions or fields these features rely on, and a test pins that pass-through. Whether a model can actually drive them is up to the model: a text-only model does not gain vision, but it stops breaking the whole request over one image. Codex Ultra's job is making Codex understand what each model can do.",
+        "arch_title": "Where it sits",
+        "arch_side": "on your machine",
+        "arch_codex": "Codex",
+        "arch_codex_sub": "desktop / CLI",
+        "arch_ultra": "Codex Ultra",
+        "arch_ultra_sub": "local process on 127.0.0.1",
+        "arch_jobs": ["compaction takeover", "encrypted checkpoints", "tool-image pairing", "capability catalog"],
+        "arch_gw": "Sub2API gateway",
+        "arch_gw_sub": "or any Responses-compatible gateway",
+        "arch_note": "keys never leave this machine · chat history untouched · one base_url changed",
+        "cost_title": "What it costs you",
+        "cost_stats": [("1", "local process"), ("5", "Python packages"), ("3", "commands"), ("0", "frontend / Node / Docker / database")],
+        "cost_left": "What lands where",
+        "cost_paths": [("~/Library/Application Support/Codex Ultra/", "service + venv, mode 700"),
+                        ("~/.codex/config.toml", "one base_url changed"),
+                        ("~/Library/LaunchAgents/….plist", "starts at login")],
+        "cost_right": "How you undo it",
+        "cost_rollback": ["python3 configure.py rollback", "restores that single network address", "every later edit you made survives"],
+        "cost_scale": "~2,300 lines of Python · 153 offline tests · CI on Python 3.11/3.12/3.13",
+        "cmp_title": "How it compares",
+        "cmp_left": "Codex Ultra",
+        "cmp_right": "OpenCodex",
+        "cmp_rows": [("Focus", "adapter on top of Codex", "universal provider proxy"),
+                      ("Shape", "local Python process", "Node runtime"),
+                      ("Interface", "Codex's own picker", "bundled web dashboard"),
+                      ("Dependencies", "5 Python packages", "Node 18+ / Docker optional"),
+                      ("Strength", "compaction · tool images · native feel", "account pool · quota routing · multi-client")],
+        "cmp_note": "Not competitors. Want a hub for several accounts? Right column. Already have a gateway and want Codex to switch in one step? Left column.",
+        "cmp_warn": "Both rewrite the same base_url, so run only one per provider entry.",
+        "mx_title": "Supported models",
+        "mx_sub": "Whatever your gateway offers, you can use; these families have built-in policy",
+        "mx_cols": ("Vendor", "Slugs", "Images", "Long context"),
+        "mx_rows": [("DeepSeek", "deepseek-*", False, "1M class"),
+                     ("Google", "gemini-*", True, "1M class"),
+                     ("Anthropic", "claude-*", True, "200K / 1M"),
+                     ("xAI", "grok-*", True, "200K+"),
+                     ("MiniMax", "minimax-* / m2-*", True, "1M class"),
+                     ("Moonshot", "kimi-* / k2*", False, "256K class"),
+                     ("Zhipu", "glm-*", False, "128K+"),
+                     ("OpenAI", "gpt-*", True, "native")],
+        "mx_note": "Real numbers always come from your gateway; nothing is invented and no window is silently shrunk. Adding a vendor = one line in model_presets.py.",
     },
 }
 
@@ -404,12 +486,215 @@ def main():
         jobs.append((f"compaction.{lang}.png", compaction_flow(copy), 864, 232))
         jobs.append((f"switching.{lang}.png", switching_flow(copy), 864, 300))
         jobs.append((f"capabilities.{lang}.png", capabilities(copy), 864, 512))
+        jobs.append((f"architecture.{lang}.png", architecture(copy), 948, 470))
+        jobs.append((f"cost.{lang}.png", deployment_cost(copy), 948, 348))
+        jobs.append((f"compare.{lang}.png", comparison(copy), 948, 372))
+        jobs.append((f"models.{lang}.png", model_matrix(copy), 948, 470))
     for name, page, width, height in jobs:
         target = OUT / name
         render(chrome, page, target, width, height)
         print("wrote %-28s %6d B" % (name, target.stat().st_size))
     return 0
 
+
+
+
+def architecture(copy):
+    """The single most useful diagram: what sits where, and what it does."""
+    jobs = "".join('<div class="job">%s</div>' % html.escape(j) for j in copy["arch_jobs"])
+    return f"""<!doctype html>
+<html lang="{'zh-CN' if copy is COPY['zh'] else 'en'}"><head><meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #0d1117; font-family: {FONT}; -webkit-font-smoothing: antialiased; }}
+  .wrap {{ width: 900px; padding: 22px 24px; }}
+  .frame {{ border: 1px dashed #30363d; border-radius: 10px; padding: 16px 18px 18px; position: relative; }}
+  .side {{ position: absolute; top: -9px; left: 16px; background: #0d1117; padding: 0 8px;
+          color: #6e7681; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }}
+  .box {{ border: 1px solid #30363d; border-radius: 8px; background: #161b22; padding: 12px 16px; }}
+  .codex {{ display: flex; align-items: center; justify-content: space-between; }}
+  .codex-name {{ color: #f0f6fc; font-size: 16px; font-weight: 600; }}
+  .codex-sub {{ color: #6e7681; font-size: 12px; }}
+  .arrow {{ text-align: center; color: #484f58; font-size: 11px; padding: 7px 0 5px; }}
+  .arrow b {{ display: block; color: #30363d; font-size: 15px; line-height: .7; }}
+  .ultra {{ border-color: #1f6feb66; background: linear-gradient(180deg, #132030 0%, #161b22 100%); }}
+  .ultra-head {{ display: flex; align-items: baseline; justify-content: space-between; }}
+  .ultra-name {{ color: #58a6ff; font-size: 16px; font-weight: 600; }}
+  .ultra-sub {{ color: #6e7681; font-size: 12px; }}
+  .jobs {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }}
+  .job {{ background: #0d1117aa; border: 1px solid #30363d; border-radius: 6px;
+         padding: 8px 6px; text-align: center; color: #c9d1d9; font-size: 12px; }}
+  .gw {{ display: flex; align-items: center; justify-content: space-between; }}
+  .gw-name {{ color: #c9d1d9; font-size: 14px; font-weight: 600; }}
+  .gw-sub {{ color: #6e7681; font-size: 12px; }}
+  .models {{ display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; margin-top: 5px; }}
+  .chip {{ border: 1px solid #30363d; background: #161b22; border-radius: 999px;
+          padding: 5px 13px; color: #8b949e; font-size: 12px; }}
+  .foot {{ margin-top: 14px; text-align: center; color: #6e7681; font-size: 11.5px; }}
+</style></head>
+<body><div class="wrap">
+  <div class="frame">
+    <span class="side">{copy['arch_side']}</span>
+    <div class="box codex">
+      <span class="codex-name">{copy['arch_codex']}</span>
+      <span class="codex-sub">{copy['arch_codex_sub']}</span>
+    </div>
+    <div class="arrow">Responses API<b>▼</b></div>
+    <div class="box ultra">
+      <div class="ultra-head">
+        <span class="ultra-name">{copy['arch_ultra']}</span>
+        <span class="ultra-sub">{copy['arch_ultra_sub']}</span>
+      </div>
+      <div class="jobs">{jobs}</div>
+    </div>
+    <div class="arrow">forwarded<b>▼</b></div>
+    <div class="box gw">
+      <span class="gw-name">{copy['arch_gw']}</span>
+      <span class="gw-sub">{copy['arch_gw_sub']}</span>
+    </div>
+  </div>
+  <div class="models">
+    <span class="chip">DeepSeek</span><span class="chip">Gemini</span><span class="chip">Claude</span>
+    <span class="chip">Grok</span><span class="chip">MiniMax</span><span class="chip">Kimi</span>
+    <span class="chip">GLM</span><span class="chip">GPT</span>
+  </div>
+  <div class="foot">{copy['arch_note']}</div>
+</div></body></html>
+"""
+
+
+def deployment_cost(copy):
+    """Selling point: lightweight. Numbers as objects, not paragraphs."""
+    stats = "".join(
+        '<div class="stat"><div class="num">%s</div><div class="lbl">%s</div></div>' % (n, html.escape(l))
+        for n, l in copy["cost_stats"])
+    paths = "".join(
+        '<div class="path"><code>%s</code><span>%s</span></div>' % (html.escape(p), html.escape(n))
+        for p, n in copy["cost_paths"])
+    steps = "".join('<div class="rb">%s</div>' % html.escape(s) for s in copy["cost_rollback"])
+    return f"""<!doctype html>
+<html lang="{'zh-CN' if copy is COPY['zh'] else 'en'}"><head><meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #0d1117; font-family: {FONT}; -webkit-font-smoothing: antialiased; }}
+  .wrap {{ width: 900px; padding: 22px 24px; }}
+  .title {{ color: #e6edf3; font-size: 15px; font-weight: 600; margin-bottom: 13px; }}
+  .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }}
+  .stat {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 12px; }}
+  .num {{ color: #58a6ff; font-size: 27px; font-weight: 700; line-height: 1.1;
+          font-variant-numeric: tabular-nums; }}
+  .lbl {{ color: #8b949e; font-size: 11.5px; margin-top: 5px; line-height: 1.35; }}
+  .cols {{ display: flex; gap: 12px; margin-top: 14px; }}
+  .col {{ flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+         padding: 13px 15px 15px; }}
+  .col-title {{ color: #c9d1d9; font-size: 12.5px; font-weight: 600; margin-bottom: 9px; }}
+  .path {{ display: flex; flex-direction: column; gap: 2px; padding: 6px 0;
+          border-bottom: 1px solid #21262d; }}
+  .path:last-child {{ border-bottom: 0; }}
+  .path code {{ color: #7ee787; font-size: 11px; font-family: ui-monospace, SFMono-Regular, monospace;
+              word-break: break-all; }}
+  .path span {{ color: #6e7681; font-size: 11px; }}
+  .rb {{ color: #8b949e; font-size: 12px; padding: 5px 0; }}
+  .rb:first-child {{ color: #7ee787; font-family: ui-monospace, SFMono-Regular, monospace;
+                    font-size: 11.5px; }}
+  .scale {{ margin-top: 13px; text-align: center; color: #6e7681; font-size: 11.5px; }}
+</style></head>
+<body><div class="wrap">
+  <div class="title">{copy['cost_title']}</div>
+  <div class="stats">{stats}</div>
+  <div class="cols">
+    <div class="col"><div class="col-title">{copy['cost_left']}</div>{paths}</div>
+    <div class="col"><div class="col-title">{copy['cost_right']}</div>{steps}</div>
+  </div>
+  <div class="scale">{copy['cost_scale']}</div>
+</div></body></html>
+"""
+
+
+def comparison(copy):
+    """Differentiation without a takedown: strengths on both sides."""
+    rows = "".join(
+        '<div class="row"><span class="k">%s</span><span class="l">%s</span>'
+        '<span class="r">%s</span></div>' % (html.escape(k), html.escape(l), html.escape(r))
+        for k, l, r in copy["cmp_rows"])
+    return f"""<!doctype html>
+<html lang="{'zh-CN' if copy is COPY['zh'] else 'en'}"><head><meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #0d1117; font-family: {FONT}; -webkit-font-smoothing: antialiased; }}
+  .wrap {{ width: 900px; padding: 22px 24px; }}
+  .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 17px 20px 19px; }}
+  .title {{ color: #e6edf3; font-size: 15px; font-weight: 600; }}
+  .head {{ display: flex; margin: 13px 0 4px; padding-bottom: 9px; border-bottom: 1px solid #30363d; }}
+  .k {{ width: 118px; color: #6e7681; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }}
+  .lh, .rh {{ flex: 1; font-size: 12px; font-weight: 600; }}
+  .lh {{ color: #58a6ff; }}
+  .rh {{ color: #8b949e; }}
+  .row {{ display: flex; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #21262d;
+         font-size: 12.5px; }}
+  .row:last-child {{ border-bottom: 0; }}
+  .row .k {{ font-size: 11px; }}
+  .l {{ flex: 1; color: #c9d1d9; }}
+  .r {{ flex: 1; color: #8b949e; }}
+  .note {{ margin-top: 12px; color: #8b949e; font-size: 11.5px; line-height: 1.6; }}
+  .warn {{ margin-top: 7px; color: #d29922; font-size: 11.5px; line-height: 1.6; }}
+</style></head>
+<body><div class="wrap">
+  <div class="card">
+    <div class="title">{copy['cmp_title']}</div>
+    <div class="head"><span class="k"></span>
+      <span class="lh">{copy['cmp_left']}</span><span class="rh">{copy['cmp_right']}</span></div>
+    {rows}
+  </div>
+  <div class="note">{copy['cmp_note']}</div>
+  <div class="warn">{copy['cmp_warn']}</div>
+</div></body></html>
+"""
+
+
+def model_matrix(copy):
+    """Availability is the gateway's; policy is ours. Show both."""
+    rows = "".join(
+        '<div class="row"><span class="v">%s</span><span class="s">%s</span>'
+        '<span class="i">%s</span><span class="c">%s</span></div>'
+        % (html.escape(v), html.escape(s), "✓" if img else "·", html.escape(ctx))
+        for v, s, img, ctx in copy["mx_rows"])
+    c0, c1, c2, c3 = copy["mx_cols"]
+    return f"""<!doctype html>
+<html lang="{'zh-CN' if copy is COPY['zh'] else 'en'}"><head><meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #0d1117; font-family: {FONT}; -webkit-font-smoothing: antialiased; }}
+  .wrap {{ width: 900px; padding: 22px 24px; }}
+  .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 17px 20px 19px; }}
+  .title {{ color: #e6edf3; font-size: 15px; font-weight: 600; }}
+  .sub {{ color: #6e7681; font-size: 11.5px; margin-top: 5px; }}
+  .head {{ display: flex; margin: 13px 0 4px; padding-bottom: 9px; border-bottom: 1px solid #30363d;
+          color: #6e7681; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }}
+  .head .v {{ width: 132px; }}
+  .head .s {{ flex: 1; }}
+  .head .i, .head .c {{ width: 96px; text-align: center; }}
+  .row {{ display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid #21262d;
+         font-size: 13px; }}
+  .row:last-child {{ border-bottom: 0; }}
+  .row .v {{ width: 132px; color: #f0f6fc; font-weight: 600; }}
+  .row .s {{ flex: 1; color: #8b949e; font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, monospace; }}
+  .row .i {{ width: 96px; text-align: center; color: #3fb950; }}
+  .row .c {{ width: 96px; text-align: center; color: #58a6ff; font-size: 12px; }}
+  .note {{ margin-top: 12px; color: #6e7681; font-size: 11.5px; line-height: 1.6; }}
+</style></head>
+<body><div class="wrap">
+  <div class="card">
+    <div class="title">{copy['mx_title']}</div>
+    <div class="sub">{copy['mx_sub']}</div>
+    <div class="head"><span class="v">{c0}</span><span class="s">{c1}</span>
+      <span class="i">{c2}</span><span class="c">{c3}</span></div>
+    {rows}
+  </div>
+  <div class="note">{copy['mx_note']}</div>
+</div></body></html>
+"""
 
 if __name__ == "__main__":
     sys.exit(main())

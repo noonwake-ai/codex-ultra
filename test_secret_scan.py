@@ -165,7 +165,11 @@ class SecretScanTests(unittest.TestCase):
         for name in ("model-picker.zh.png", "model-picker.en.png",
                      "compaction.zh.png", "compaction.en.png",
                      "switching.zh.png", "switching.en.png",
-                     "capabilities.zh.png", "capabilities.en.png"):
+                     "capabilities.zh.png", "capabilities.en.png",
+                     "architecture.zh.png", "architecture.en.png",
+                     "cost.zh.png", "cost.en.png",
+                     "compare.zh.png", "compare.en.png",
+                     "models.zh.png", "models.en.png"):
             with self.subTest(asset=name):
                 data = (ROOT / "docs/assets" / name).read_bytes()
                 self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
@@ -177,7 +181,11 @@ class SecretScanTests(unittest.TestCase):
             "docs/assets/model-picker.zh.png", "docs/assets/model-picker.en.png",
             "docs/assets/compaction.zh.png", "docs/assets/compaction.en.png",
             "docs/assets/switching.zh.png", "docs/assets/switching.en.png",
-            "docs/assets/capabilities.zh.png", "docs/assets/capabilities.en.png"},
+            "docs/assets/capabilities.zh.png", "docs/assets/capabilities.en.png",
+            "docs/assets/architecture.zh.png", "docs/assets/architecture.en.png",
+            "docs/assets/cost.zh.png", "docs/assets/cost.en.png",
+            "docs/assets/compare.zh.png", "docs/assets/compare.en.png",
+            "docs/assets/models.zh.png", "docs/assets/models.en.png"},
             "a documented image disappeared without the docs being updated")
 
 
