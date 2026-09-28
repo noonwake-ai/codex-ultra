@@ -161,7 +161,9 @@ class SecretScanTests(unittest.TestCase):
         self.assertTrue((ROOT / "docs/assets/src/render_assets.py").is_file(),
                         "illustration source is missing; the PNGs become unreproducible")
         for name in ("model-picker.zh.png", "model-picker.en.png",
-                     "compaction.zh.png", "compaction.en.png"):
+                     "compaction.zh.png", "compaction.en.png",
+                     "switching.zh.png", "switching.en.png",
+                     "capabilities.zh.png", "capabilities.en.png"):
             with self.subTest(asset=name):
                 data = (ROOT / "docs/assets" / name).read_bytes()
                 self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
@@ -171,7 +173,9 @@ class SecretScanTests(unittest.TestCase):
         self.assertEqual(referenced, {
             "docs/assets/banner.svg",
             "docs/assets/model-picker.zh.png", "docs/assets/model-picker.en.png",
-            "docs/assets/compaction.zh.png", "docs/assets/compaction.en.png"},
+            "docs/assets/compaction.zh.png", "docs/assets/compaction.en.png",
+            "docs/assets/switching.zh.png", "docs/assets/switching.en.png",
+            "docs/assets/capabilities.zh.png", "docs/assets/capabilities.en.png"},
             "a documented image disappeared without the docs being updated")
 
 

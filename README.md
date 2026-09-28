@@ -68,6 +68,87 @@ Codex ──────────────────► GPT      Codex �
 
 ---
 
+## 三个理由
+
+### 一、想用哪个模型，就用哪个模型
+
+依托 [Sub2API](https://github.com/Wei-Shaw/sub2api) 这类模型网关，把 DeepSeek、Gemini、
+Claude、Grok、MiniMax、Kimi、GLM 一次性接进 Codex。你有哪个模型，就能用哪个模型——
+换网关、换供应商、换组合，都不影响 Codex 这一端。
+
+### 二、切换发生在 Codex 里面，不在外面
+
+这是它和"本地供应商切换器"最本质的区别。切换器要你先离开 Codex、改配置、再回来；
+Codex Ultra 让你**在 Codex 的模型下拉框里直接选**，选完接着干活。
+
+<img src="docs/assets/switching.zh.png" alt="左边：在 Codex 外面切供应商要五步；右边：用 Codex Ultra 在 Codex 里面选模型只要三步" width="820">
+
+<details>
+<summary>那我已经在用 CC Switch 了，会冲突吗？</summary>
+
+不会，而且安装器会顺手把它的记录同步更新，免得你下次切换时把本地适配层切没了。
+两者管的是不同的事：CC Switch 管「用哪个供应商」，Codex Ultra 管「这个模型怎么在 Codex 里跑」。
+
+</details>
+
+### 三、Codex 的能力一个不少，全部落到新模型上
+
+第三方模型的能力差得很远：有的能看图，有的不能；窗口大小、思考档位、工具协议各不相同。
+直接把一个模型塞进来，Codex 会因为不知道它能干什么而调度错误。
+
+Codex Ultra 把这些差异对齐了：告诉 Codex 每个模型的真实窗口、是否吃图片、有哪些思考档位。
+于是 **Skill、MCP、工具调用、Computer Use、Memory、Sub Agent 这些能力不受影响**。
+
+<img src="docs/assets/capabilities.zh.png" alt="Skill、MCP、工具调用、Computer Use、Memory、Sub Agent 换成第三方模型后一样能用" width="820">
+
+> 如实说明两件事。第一，适配层**不改动** Codex 下发的工具声明、指令和这些能力依赖的字段，
+> 转发时原样保留，测试钉住了这一点。第二，能力上限取决于模型自己：文本模型不会因为装了
+> Codex Ultra 就获得视觉，但它不会再因为一张图把整个请求搞崩。
+> 我们没做"能力凭空变强"，我们做的是让 Codex 正确认识每个模型能干什么。
+
+---
+
+## 部署成本
+
+纯 Python，三个命令，没有前端、没有 Node、没有 Docker、没有数据库。
+
+| | |
+|---|---|
+| 运行形态 | 一个本地进程，监听 `127.0.0.1` |
+| 依赖 | 5 个 Python 包（`requirements.txt`） |
+| 安装 | `build_catalog.py` → `install.py` → 重开 Codex |
+| 开机自启 | macOS launchd，装完就是后台服务 |
+| 回滚 | 一条命令，只还原那一个 `base_url` |
+| 代码量 | 约 2,300 行 Python（不含测试） |
+| 测试 | 153 项离线测试，CI 在 Python 3.11/3.12/3.13 上跑 |
+
+---
+
+## 和其他方案的关系
+
+很多人第一反应是"这和 [OpenCodex](https://github.com/lidge-jun/opencodex) 有什么区别"。
+两者都在让 Codex 用上别的模型，只是着力点不同——它更像一个**多供应商控制台**，
+我们更像一层**贴在 Codex 身上的适配层**。
+
+| | Codex Ultra | OpenCodex |
+|---|---|---|
+| 核心定位 | 让 Codex 里的每个模型都"像原生的一样" | 通用供应商代理 + 管理面板 |
+| 运行形态 | 一个本地 Python 进程，随登录自启 | Node 运行时，带 Web 控制台 |
+| 界面 | 用 Codex 自己的模型选择器 | 自带的 Dashboard（`localhost:10100`） |
+| 覆盖面 | Codex 桌面端 / CLI | Codex CLI / App / SDK，还能带 Claude Code |
+| 依赖 | 5 个 Python 包 | Node 18+（内置 Bun），可选 Docker |
+| 额外能力 | 压缩接管、工具图片配对、能力目录 | 账号池、配额路由、多客户端接入 |
+
+**怎么选：** 如果你要的是一个统一管理多家账号、给多个客户端供模型的中枢，OpenCodex 的
+面板和账号池是它的强项。如果你已经有一个趁手的模型网关（比如 Sub2API），
+只想让 Codex 这边**少一步切换、多一份原生体验**，那 Codex Ultra 更贴合——
+没有面板要学，没有额外运行时，装完就用 Codex 自己的界面。
+
+> 两者都会把请求指向本机代理，所以**同一个供应商记录上只跑一个**，
+> 避免两边互相覆盖 `base_url`。
+
+---
+
 ## 它究竟替你修好了什么
 
 同样的操作，两条路走到完全不同的地方：

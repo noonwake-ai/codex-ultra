@@ -76,6 +76,96 @@ routes that take images:
 
 ---
 
+## Three reasons
+
+### 1. Use whichever model you want
+
+Put DeepSeek, Gemini, Claude, Grok, MiniMax, Kimi and GLM behind Codex through a
+gateway such as [Sub2API](https://github.com/Wei-Shaw/sub2api). Whatever models your
+gateway offers, you can use — swapping gateways, providers or combinations never
+touches the Codex side.
+
+### 2. The switch happens inside Codex
+
+This is the real difference from a local provider switcher. A switcher makes you
+leave Codex, edit configuration and come back. Codex Ultra lets you **pick the
+model from Codex's own dropdown and keep working.**
+
+<img src="docs/assets/switching.en.png" alt="Left: switching providers outside Codex takes five steps. Right: picking a model inside Codex takes three." width="820">
+
+<details>
+<summary>I already use CC Switch. Will this conflict?</summary>
+
+No — and the installer updates its record for you, so a later provider switch will
+not silently drop the adapter. The two do different jobs: CC Switch decides *which
+provider* you use, Codex Ultra decides *how that model runs inside Codex*.
+
+</details>
+
+### 3. Every Codex ability still applies, on the new model
+
+Third-party models differ wildly: some read images, some do not; context windows,
+reasoning levels and tool protocols all vary. Drop one in naively and Codex
+miscalculates what it can do.
+
+Codex Ultra aligns those differences — the real context window, whether the route
+takes images, which reasoning levels exist. So **Skill, MCP, tool calling, Computer
+Use, Memory and Sub Agent are unaffected.**
+
+<img src="docs/assets/capabilities.en.png" alt="Skill, MCP, tool calling, Computer Use, Memory and Sub Agent still work with a third-party model" width="820">
+
+> Two things said plainly. First, the adapter does **not** rewrite the tool
+> declarations, instructions or fields these features depend on; they pass through
+> untouched and a test pins it. Second, the ceiling belongs to the model: a
+> text-only model does not gain vision because Codex Ultra is installed, but it
+> stops breaking the whole request over one image. We do not make abilities appear
+> — we make Codex understand what each model can actually do.
+
+---
+
+## Deployment cost
+
+Plain Python, three commands, no frontend, no Node, no Docker, no database.
+
+| | |
+|---|---|
+| Shape | one local process on `127.0.0.1` |
+| Dependencies | 5 Python packages (`requirements.txt`) |
+| Install | `build_catalog.py` → `install.py` → restart Codex |
+| Autostart | macOS launchd; it is a background service once installed |
+| Rollback | one command, restores that single `base_url` |
+| Code size | ~2,300 lines of Python (tests excluded) |
+| Tests | 153 offline tests, CI on Python 3.11/3.12/3.13 |
+
+---
+
+## How it relates to other tools
+
+The first question people ask is how this differs from
+[OpenCodex](https://github.com/lidge-jun/opencodex). Both let Codex use other
+models; the emphasis differs — that one is closer to a **multi-provider console**,
+this one is an **adapter that sits on Codex itself**.
+
+| | Codex Ultra | OpenCodex |
+|---|---|---|
+| Focus | Make every model inside Codex behave natively | Universal provider proxy plus a dashboard |
+| Shape | one local Python process, starts at login | Node runtime with a web console |
+| Interface | Codex's own model picker | Its own dashboard (`localhost:10100`) |
+| Reach | Codex desktop / CLI | Codex CLI / App / SDK, plus Claude Code |
+| Dependencies | 5 Python packages | Node 18+ (Bun bundled), Docker optional |
+| Extras | compaction takeover, tool-image pairing, capability catalog | account pooling, quota routing, multi-client access |
+
+**Which to pick:** if you want a central hub that manages several accounts and
+serves several clients, the dashboard and account pool are OpenCodex's strengths.
+If you already have a gateway you like (Sub2API, say) and simply want Codex to take
+**one step less to switch and feel native doing it**, Codex Ultra fits better —
+no console to learn, no extra runtime, and you drive it from Codex's own UI.
+
+> Both point requests at a local proxy, so **run only one of them per provider
+> entry**, or they will overwrite each other's `base_url`.
+
+---
+
 ## What it genuinely fixes
 
 The same action, two very different endings:

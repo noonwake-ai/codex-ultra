@@ -70,6 +70,21 @@ COPY = {
         "after_title": "装上 Codex Ultra",
         "after_steps": ["把模型切到 DeepSeek", "Codex Ultra 接管压缩并加密存本机", "任务接着跑，历史一条不丢"],
         "footnote": "示意图：展示安装后模型选择与压缩接续的效果，不是某个具体版本的真实截图。",
+        "switch_title_a": "在 Codex 外面切",
+        "switch_sub_a": "CC Switch 这类方案的路径",
+        "switch_steps_a": ["退出或切走 Codex", "打开供应商切换工具", "切换供应商 / 配置",
+                           "回到 Codex，重载配置", "继续干活"],
+        "switch_title_b": "在 Codex 里面切",
+        "switch_sub_b": "Codex Ultra 的路径",
+        "switch_steps_b": ["点 Codex 右下角的模型按钮", "选中你要的模型", "继续干活"],
+        "switch_note": "CC Switch 管的是「用哪个供应商」，Codex Ultra 管的是「这个模型怎么在 Codex 里跑」。两者不冲突，安装时我们还会帮你同步它的记录。",
+        "caps_title": "换的是模型，不是体验",
+        "caps_col": "Codex 的能力",
+        "caps_right": "换成第三方模型之后",
+        "caps": [("Skill", "不受影响"), ("MCP", "不受影响"), ("工具调用", "不受影响"),
+                 ("Computer Use", "不受影响"), ("Memory", "不受影响"), ("Sub Agent", "不受影响"),
+                 ("自动压缩", "由你指定的模型接管"), ("图片", "支持的模型照常送图")],
+        "caps_note": "适配层不改动 Codex 下发的工具声明、指令和这些能力所需的字段，转发时原样保留——测试钉住了这一点。至于模型能不能真正驱动它们，取决于模型自身：文本模型不会因为装了 Codex Ultra 就获得视觉，但它不会再因为一张图把整个请求搞崩。Codex Ultra 做的是让 Codex 正确认识每个模型能干什么。",
     },
     "en": {
         "window_title": "Codex",
@@ -86,6 +101,22 @@ COPY = {
         "after_title": "With Codex Ultra",
         "after_steps": ["Switch the model to DeepSeek", "Codex Ultra compacts and encrypts locally", "The task continues, nothing lost"],
         "footnote": "Illustration: the post-install model picker and compaction handoff, not a screenshot of a specific build.",
+        "switch_title_a": "Switching outside Codex",
+        "switch_sub_a": "How provider switchers work",
+        "switch_steps_a": ["Leave or switch away from Codex", "Open the provider switcher",
+                           "Switch provider / edit config", "Return to Codex and reload", "Get back to work"],
+        "switch_title_b": "Switching inside Codex",
+        "switch_sub_b": "How Codex Ultra works",
+        "switch_steps_b": ["Click the model button in Codex", "Pick the model you want", "Get back to work"],
+        "switch_note": "A provider switcher decides *which provider* you use. Codex Ultra decides *how that model runs inside Codex*. They do not conflict — the installer keeps the switcher's record in sync.",
+        "caps_title": "A different model, not a different experience",
+        "caps_col": "Codex feature",
+        "caps_right": "With a third-party model",
+        "caps": [("Skill", "unaffected"), ("MCP", "unaffected"), ("Tool calling", "unaffected"),
+                 ("Computer Use", "unaffected"), ("Memory", "unaffected"), ("Sub Agent", "unaffected"),
+                 ("Auto-compaction", "served by the model you pick"),
+                 ("Images", "routed to models that take them")],
+        "caps_note": "The adapter does not rewrite the tool declarations, instructions or fields these features rely on, and a test pins that pass-through. Whether a model can actually drive them is up to the model: a text-only model does not gain vision, but it stops breaking the whole request over one image. Codex Ultra's job is making Codex understand what each model can do.",
     },
 }
 
@@ -263,6 +294,90 @@ def compaction_flow(copy):
 """
 
 
+def switching_flow(copy):
+    """Selling point 2: where the switch happens, and how many steps it costs."""
+    def panel(title, sub, steps, tone):
+        rows = "".join(
+            '<div class="step"><span class="idx">{i}</span>{t}</div>'.format(
+                i=i + 1, t=html.escape(text))
+            for i, text in enumerate(steps))
+        return ('<div class="panel panel-%s"><div class="panel-head">'
+                '<div class="panel-title">%s</div>'
+                '<div class="panel-sub">%s</div></div>%s</div>'
+                % (tone, html.escape(title), html.escape(sub), rows))
+
+    return f"""<!doctype html>
+<html lang="{'zh-CN' if copy is COPY['zh'] else 'en'}"><head><meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #0d1117; font-family: {FONT}; -webkit-font-smoothing: antialiased; }}
+  .wrap {{ width: 820px; padding: 22px; }}
+  .cols {{ display: flex; gap: 16px; align-items: flex-start; }}
+  .panel {{ flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+           padding: 15px 17px 17px; }}
+  .panel-slow {{ border-color: #4a3a1e; }}
+  .panel-fast {{ border-color: #1f4b2c; }}
+  .panel-head {{ margin-bottom: 11px; }}
+  .panel-title {{ font-size: 14px; font-weight: 600; }}
+  .panel-slow .panel-title {{ color: #d29922; }}
+  .panel-fast .panel-title {{ color: #3fb950; }}
+  .panel-sub {{ color: #6e7681; font-size: 11.5px; margin-top: 4px; }}
+  .step {{ display: flex; gap: 10px; color: #8b949e; font-size: 12.5px; line-height: 1.45;
+          padding: 6px 0; border-bottom: 1px solid #21262d; }}
+  .step:last-child {{ border-bottom: 0; }}
+  .idx {{ color: #484f58; font-size: 11px; min-width: 13px; }}
+  .panel-slow .step:last-child {{ color: #c9a227; }}
+  .panel-fast .step:last-child {{ color: #7ee787; }}
+  .note {{ margin-top: 13px; color: #6e7681; font-size: 11.5px; line-height: 1.55; }}
+</style></head>
+<body><div class="wrap">
+  <div class="cols">
+    {panel(copy['switch_title_a'], copy['switch_sub_a'], copy['switch_steps_a'], 'slow')}
+    {panel(copy['switch_title_b'], copy['switch_sub_b'], copy['switch_steps_b'], 'fast')}
+  </div>
+  <div class="note">{copy['switch_note']}</div>
+</div></body></html>
+"""
+
+
+def capabilities(copy):
+    """Selling point 3: Codex's own features keep working on another model."""
+    rows = "".join(
+        '<div class="row"><span class="cap">%s</span>'
+        '<span class="tick">✓</span><span class="val">%s</span></div>'
+        % (html.escape(name), html.escape(value))
+        for name, value in copy["caps"])
+    return f"""<!doctype html>
+<html lang="{'zh-CN' if copy is COPY['zh'] else 'en'}"><head><meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #0d1117; font-family: {FONT}; -webkit-font-smoothing: antialiased; }}
+  .wrap {{ width: 820px; padding: 22px; }}
+  .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+          padding: 18px 20px 20px; }}
+  .title {{ font-size: 15px; font-weight: 600; color: #e6edf3; }}
+  .head {{ display: flex; justify-content: space-between; margin: 13px 0 6px;
+          padding-bottom: 8px; border-bottom: 1px solid #30363d;
+          color: #6e7681; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }}
+  .row {{ display: flex; align-items: center; padding: 8px 0;
+         border-bottom: 1px solid #21262d; font-size: 13px; }}
+  .row:last-child {{ border-bottom: 0; }}
+  .cap {{ color: #c9d1d9; min-width: 168px; }}
+  .tick {{ color: #3fb950; font-size: 12px; min-width: 26px; }}
+  .val {{ color: #8b949e; font-size: 12px; }}
+  .note {{ margin-top: 13px; color: #6e7681; font-size: 11.5px; line-height: 1.55; }}
+</style></head>
+<body><div class="wrap">
+  <div class="card">
+    <div class="title">{copy['caps_title']}</div>
+    <div class="head"><span>{copy['caps_col']}</span><span>{copy['caps_right']}</span></div>
+    {rows}
+  </div>
+  <div class="note">{copy['caps_note']}</div>
+</div></body></html>
+"""
+
+
 def render(chrome, page, target, width, height, scale=2):
     source = OUT / ".render-tmp.html"
     source.write_text(page, encoding="utf-8")
@@ -287,6 +402,8 @@ def main():
     for lang, copy in COPY.items():
         jobs.append((f"model-picker.{lang}.png", model_picker(copy), 864, 620))
         jobs.append((f"compaction.{lang}.png", compaction_flow(copy), 864, 232))
+        jobs.append((f"switching.{lang}.png", switching_flow(copy), 864, 300))
+        jobs.append((f"capabilities.{lang}.png", capabilities(copy), 864, 512))
     for name, page, width, height in jobs:
         target = OUT / name
         render(chrome, page, target, width, height)
