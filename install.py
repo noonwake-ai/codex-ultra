@@ -283,6 +283,8 @@ def main(argv=None):
                           "command": pathlib.Path(exc.cmd[0]).name}), file=sys.stderr)
         return 2
 
+    # One line of JSON, like the other tools here, so `tail -1` or a caller reading
+    # the stream gets a complete machine-readable result.
     print(json.dumps({
         "ok": True,
         "service": "healthy",
@@ -291,7 +293,7 @@ def main(argv=None):
         "rollback_command": "%s %s rollback --rollback-record %s"
                             % (python, root / "configure.py", record),
         "next": "start a new Codex chat or restart Codex",
-    }, ensure_ascii=False, indent=2))
+    }, ensure_ascii=False))
     return 0
 
 

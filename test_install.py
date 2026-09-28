@@ -167,6 +167,13 @@ class SourceTests(unittest.TestCase):
         self.assertIn("rollback_command", source)
         self.assertIn("rollback_record", source)
 
+    def test_the_final_summary_is_one_parseable_line(self):
+        """Callers read stdout; a multi-line blob breaks `tail -1` and JSON parsing."""
+        source = (install.HERE / "install.py").read_text()
+        summary = source.split('"rollback_command"', 1)[1]
+        self.assertIn('ensure_ascii=False))', summary)
+        self.assertNotIn("indent=2", summary)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
