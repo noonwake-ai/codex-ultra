@@ -5,6 +5,7 @@ import pathlib
 import tempfile
 import unittest
 
+import adapter
 import install
 
 CONFIG = (
@@ -133,3 +134,43 @@ class SourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class LiveMediaRoutingTests(unittest.TestCase):
+    """Media routing follows the catalog, so a new model needs no reinstall."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temp.name)
+        self.catalog = self.root / "models.json"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def write_catalog(self, slugs):
+        self.catalog.write_text(json.dumps({"models": [{"slug": s} for s in slugs]}))
+
+    def test_catalog_wins_over_the_frozen_install_time_list(self):
+        self.write_catalog(["gemini-3.8-flash", "kimi-k2"])
+        resolved = adapter.resolve_media_models({
+            "media_models": ["stale-model-from-install-time"],
+            "catalog": str(self.catalog)})
+        self.assertEqual(resolved, ("gemini-3.8-flash",))
+
+    def test_a_newly_exposed_model_is_picked_up_without_reinstalling(self):
+        self.write_catalog(["kimi-k2"])
+        before = adapter.resolve_media_models({"catalog": str(self.catalog)})
+        self.assertEqual(before, ())
+        self.write_catalog(["kimi-k2", "gemini-3.9-flash"])
+        after = adapter.resolve_media_models({"catalog": str(self.catalog)})
+        self.assertEqual(after, ("gemini-3.9-flash",))
+
+    def test_without_a_catalog_the_explicit_list_is_used(self):
+        self.assertEqual(adapter.resolve_media_models({"media_models": ["gemini-3.8-flash"]}),
+                         ("gemini-3.8-flash",))
+
+    def test_an_unreadable_catalog_falls_back_instead_of_refusing_to_start(self):
+        resolved = adapter.resolve_media_models({
+            "media_models": ["gemini-3.8-flash"],
+            "catalog": str(self.root / "missing.json")})
+        self.assertEqual(resolved, ("gemini-3.8-flash",))

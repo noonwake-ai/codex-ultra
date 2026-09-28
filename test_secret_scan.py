@@ -29,7 +29,7 @@ INTERNAL_PATTERNS = (
     ("private provider id", re.compile(r"openai-composite-\d{8}")),
     ("private network ip", re.compile(
         r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b")),
-    ("personal home path", re.compile(r"/Users/(?!shawn/\.codex/tmp)[A-Za-z0-9._-]+/")),
+    ("personal home path", re.compile(r"/(?:Users|home)/[A-Za-z][A-Za-z0-9._-]*/")),
 )
 
 BRAND = re.compile(r"noonwake", re.I)
@@ -121,6 +121,20 @@ class SecretScanTests(unittest.TestCase):
                      "routing-rollback.json", "team-plan.json")
         present = [name for name in forbidden if (ROOT / name).exists()]
         self.assertEqual(present, [], "runtime state must not be committed: " + ", ".join(present))
+
+    def test_readme_badges_match_the_actual_suite_size(self):
+        """A stale "N tests" badge is the first thing a visitor can catch you on."""
+        import unittest as unittest_module
+        suite = unittest_module.defaultTestLoader.discover(str(ROOT), pattern="test_*.py")
+        actual = suite.countTestCases()
+        for doc in ("README.md", "README.en.md"):
+            with self.subTest(doc=doc):
+                text = (ROOT / doc).read_text()
+                match = re.search(r"Tests-(\d+)%20offline", text)
+                self.assertIsNotNone(match, "test badge missing from " + doc)
+                self.assertEqual(int(match.group(1)), actual,
+                                 "%s advertises %s tests but the suite has %d"
+                                 % (doc, match.group(1), actual))
 
 
 if __name__ == "__main__":

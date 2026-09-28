@@ -82,13 +82,34 @@ def user(text):
     return {'type':'message','role':'user','content':[{'type':'input_text','text':text}]}
 
 
+def resolve_media_models(cfg):
+    """Which models need the tool-image step, read from the live catalog.
+
+    Media routing belongs to the catalog, not to the moment of installation. When
+    a `catalog` path is configured the list is re-derived on every start, so
+    adding a model to your gateway and rebuilding the catalog is enough: no
+    reinstall. A missing or unreadable catalog falls back to the explicit list
+    rather than refusing to start, and the resolved list is visible on /health.
+    """
+    explicit = tuple(m for m in (cfg.get('media_models') or ()) if isinstance(m, str))
+    path = cfg.get('catalog')
+    if not path:
+        return explicit
+    try:
+        catalog = json.loads(Path(path).read_text())
+        import model_presets
+        return tuple(model_presets.media_models(catalog))
+    except Exception:
+        return explicit
+
+
 class Adapter:
     def __init__(self, cfg, key, transport=requests, credential=None):
         self.cfg, self.transport = cfg, transport
         self.prefix = cfg.get('checkpoint_prefix') or PREFIX
         self.aad = (cfg.get('checkpoint_aad') or AAD.decode()).encode()
         self.cipher = AESGCM(key)
-        self.media_models = tuple(m for m in (cfg.get('media_models') or ()) if isinstance(m,str))
+        self.media_models = resolve_media_models(cfg)
         tool_image_bridge.configure(self.media_models)
         self.credential = credential or (lambda:read_api_key(cfg))
         self.lock = threading.Lock()
@@ -465,7 +486,8 @@ def handler_for(adapter):
         def do_GET(self):
             if self.path=='/health':
                 return self.reply(200,{'status':'ok','model':adapter.cfg['compactor_model'],
-                    'effort':adapter.cfg['compactor_effort'],'strategy':'B_direct_handoff',**adapter.stats})
+                    'effort':adapter.cfg['compactor_effort'],'strategy':'B_direct_handoff',
+                    'media_models':list(adapter.media_models),**adapter.stats})
             try:
                 if not self.allowed():return self.reply(401,{'error':{'code':'unauthorized'}})
                 if urlsplit(self.path).path not in ('/models','/v1/models'):return self.reply(404,{'error':{'code':'unsupported_path'}})

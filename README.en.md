@@ -13,7 +13,7 @@ skills, tool calling and images included.
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-133%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-144%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [How it works](#how-it-works) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

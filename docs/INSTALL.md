@@ -132,7 +132,18 @@ launchctl kickstart -k "gui/$(id -u)/ai.codeultra.local-adapter"
 
 # 换了模型想更新目录
 python3 build_catalog.py --gateway https://你的网关地址/v1 --out models.json
+
+# 重启一下，新的图片桥接名单就会生效（不需要重装）
+launchctl kickstart -k "gui/$(id -u)/ai.codeultra.local-adapter"
 ```
+
+> 服务每次启动都会重新读取 `models.json` 来决定哪些模型需要图片桥接，
+> 所以**加了新模型只要重新生成目录再重启服务**，不用重跑 `install.py`。
+> 当前生效的名单可以直接看健康检查：
+>
+> ```bash
+> curl -s http://127.0.0.1:15731/health
+> ```
 
 ---
 
@@ -179,6 +190,7 @@ Keychain 里的 `code-ultra` 条目可以保留（老对话需要它），确认
 | 模型列表里少了模型 | 网关没返回 | `build_catalog.py` 的摘要会列出实际读到的厂商 |
 | 图片在 Gemini 那里丢了 | 该路由没被识别为需要桥接 | 见 [模型能力表](MODELS.md)，加一条 override |
 | 切了供应商之后不生效 | CC Switch 的记录覆盖了配置 | 安装时加 `--cc-switch-db`，或重新 `configure.py apply` |
+| 新加的模型图片不对 | 服务还没重新读目录 | 重新生成 `models.json`，然后重启服务；看 `/health` 的 `media_models` |
 
 ### 端口被占用
 

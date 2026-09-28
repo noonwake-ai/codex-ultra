@@ -223,6 +223,8 @@ def main(argv=None):
             "compactor_model": args.compactor_model,
             "compactor_effort": args.compactor_effort,
             "media_models": read_media_models(args.catalog),
+            "catalog": str(pathlib.Path(args.catalog).expanduser().resolve())
+                       if args.catalog else None,
             "cc_db": args.cc_switch_db,
             "credential_provider_id": provider if args.cc_switch_db else None,
             "credential_env": "CODE_ULTRA_API_KEY",
