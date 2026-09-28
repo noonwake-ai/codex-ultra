@@ -1,0 +1,5 @@
+requests==2.32.5
+cryptography==46.0.3
+tomli==2.2.1
+zstandard==0.24.0
+tiktoken==0.12.0

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="250" viewBox="0 0 860 250" role="img" aria-label="Code Ultra：当 Codex 可以使用所有模型时，有多强">
+  <rect width="860" height="250" fill="#0d1117"/>
+  <text x="52" y="80" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="46" font-weight="700" fill="#f0f6fc">Code Ultra</text>
+  <text x="52" y="122" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" fill="#8b949e">当 Codex 可以使用所有模型时，有多强</text>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" text-anchor="middle" fill="#c9d1d9">
+    <rect x="52" y="158" width="104" height="36" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="104" y="181">DeepSeek</text>
+    <rect x="168" y="158" width="92" height="36" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="214" y="181">Gemini</text>
+    <rect x="272" y="158" width="90" height="36" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="317" y="181">Claude</text>
+    <rect x="374" y="158" width="70" height="36" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="409" y="181">Grok</text>
+    <rect x="456" y="158" width="94" height="36" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="503" y="181">MiniMax</text>
+    <rect x="562" y="158" width="76" height="36" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="600" y="181">Kimi</text>
+  </g>
+
+  <path d="M660 92 h36 a16 16 0 0 1 16 16 v50 a16 16 0 0 1 -16 16 h-36" fill="none" stroke="#30363d" stroke-width="2"/>
+  <text x="742" y="118" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f0f6fc">Code Ultra</text>
+  <text x="742" y="140" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#8b949e">本地适配层</text>
+  <text x="742" y="176" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#3fb950">自动压缩 · 工具图片</text>
+</svg>

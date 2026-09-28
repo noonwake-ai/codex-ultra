@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+runtime/
+models.json
+service.log
+service-error.log
+.rollback/
+.DS_Store
