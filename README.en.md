@@ -6,7 +6,7 @@
 
 **How strong is Codex when it can use every model?**
 
-Stop being locked to one vendor. Bring DeepSeek, Gemini, Claude, Grok, MiniMax,
+Stop being stuck with one vendor. Bring DeepSeek, Gemini, Claude, Grok, MiniMax,
 Kimi and GLM into Codex and use them like native models — automatic compaction,
 skills, tool calling and images included.
 
@@ -15,20 +15,43 @@ skills, tool calling and images included.
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
 [![Tests](https://img.shields.io/badge/Tests-144%20offline-brightgreen.svg?style=flat-square)](#tests)
 
-[简体中文](README.md) · [Install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [How it works](#how-it-works) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [How it works](#how-it-works) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 </div>
 
 ---
 
-## The 30-second version
+## Install it with one sentence
 
-Codex is excellent, but its context compaction, tool calling and image handling
-are built around one vendor. Point it at a different model and the first long
-task breaks.
+Paste this into whatever AI you already use — Codex, Claude Code, Cursor, ChatGPT:
 
-**Codex Ultra runs a small local adapter that gives every model those same native
-abilities.**
+> Install Codex Ultra for me: https://raw.githubusercontent.com/noonwake-ai/codex-ultra/main/docs/ai-install.en.md
+
+It reads the install guide, asks you two questions (your gateway address, and which
+model should handle compaction), and then does the work. All you do is approve the
+system permission prompt.
+
+Rather not let an AI touch your machine? Scroll down — [manual install](#quick-start)
+is three commands.
+
+---
+
+## You know this feeling
+
+You are three hundred turns into a task and the context is nearly full.
+
+You switch to DeepSeek to save some money — it is cheaper, it is fast, and it does
+the job. Then the compaction request returns 502. Three hundred turns of context
+die right there, and you start over.
+
+**That is not your fault.**
+Codex's automatic compaction, tool calling and image handling were written around
+one vendor's habits from top to bottom. Pointing them at another model is like
+handing someone a manual in a language they never learned — they are not slow,
+nobody translated for them.
+
+Codex Ultra is the translator. It runs on your own machine and gives every model
+Codex's native abilities.
 
 ```text
 Before                              After
@@ -47,7 +70,7 @@ context fills up. Compaction still works, the task continues, nothing returns 50
 
 ---
 
-## What it actually fixes
+## What it genuinely fixes
 
 | Pain | Without Codex Ultra | With Codex Ultra |
 |---|---|---|

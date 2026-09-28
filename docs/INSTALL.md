@@ -2,6 +2,14 @@
 
 本文面向第一次部署的人，一步一步来，不需要懂 Codex 内部实现。
 
+> **懒得自己敲命令？** 把这段发给你的 AI，它会照着一份专门写给 AI 的任务书帮你装完：
+>
+> ```
+> 帮我安装 Codex Ultra：https://raw.githubusercontent.com/noonwake-ai/codex-ultra/main/docs/ai-install.md
+> ```
+>
+> 剩下的手动流程在下面，两种方式装出来是一样的。
+
 [返回主页](../README.md)
 
 ---

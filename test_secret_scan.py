@@ -36,6 +36,7 @@ BRAND = re.compile(r"noonwake", re.I)
 # Documentation may credit the public organisation that publishes the project.
 DOCS = {"README.md", "README.en.md", "LICENSE",
         "docs/INSTALL.md", "docs/MODELS.md",
+        "docs/ai-install.md", "docs/ai-install.en.md",
         "CONTRIBUTING.md", "SECURITY.md"}
 # This file necessarily contains the patterns it searches for.
 SELF = "test_secret_scan.py"
@@ -44,7 +45,7 @@ PUBLIC_URL_ALLOW = re.compile(
     r"https?://(?:"
     r"github\.com|img\.shields\.io|shields\.io|api\.star-history\.com|"
     r"www\.python\.org|docs\.python\.org|pypi\.org|opensource\.org|"
-    r"www\.w3\.org|127\.0\.0\.1|localhost)[/:]")
+    r"raw\.githubusercontent\.com|www\.w3\.org|127\.0\.0\.1|localhost)[/:]")
 ALLOWED_HOST_SUFFIXES = (".invalid", ".example", ".test", "example.com")
 
 

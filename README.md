@@ -6,32 +6,51 @@
 
 **当 Codex 可以使用所有模型时，有多强。**
 
-不用再一辈子只抱着 GPT。DeepSeek、Gemini、Claude、Grok、MiniMax、Kimi、GLM ——
-接进来，然后在 Codex 里像原生模型一样用：自动压缩、Skill、工具调用、图片，全都在。
+别再一辈子只抱着 GPT 了。DeepSeek、Gemini、Claude、Grok、MiniMax、Kimi、GLM——
+接进来，然后在 Codex 里当原生模型用：自动压缩、Skill、工具调用、图片，一样不少。
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
 [![Tests](https://img.shields.io/badge/Tests-144%20offline-brightgreen.svg?style=flat-square)](#测试)
 
-[English](README.en.md) · [安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [工作原理](#工作原理) · [常见问题](#常见问题) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
+[English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [工作原理](#工作原理) · [常见问题](#常见问题) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
 </div>
 
 ---
 
-## 三十秒看懂
+## 一句话装好
 
-Codex 很强，但它的上下文压缩、工具调用、图片处理，都是照着 GPT 设计的。
-换一个模型过去，第一句话还没说完，压缩就崩了。
+把下面这句原样发给你正在用的 AI——Codex、Claude Code、Cursor、ChatGPT 都行：
 
-**Codex Ultra 在你自己电脑上跑一个本地适配层，把这些"原生能力"补齐给所有模型。**
+> 帮我安装 Codex Ultra：https://raw.githubusercontent.com/noonwake-ai/codex-ultra/main/docs/ai-install.md
+
+它会自己读安装说明、问你两个问题（网关地址、用哪个模型做压缩），然后把活干完。
+你要做的只有一件事：在它要系统权限的时候点一下同意。
+
+不想让 AI 碰你的电脑？往下翻，[手动安装](#快速开始)也就三条命令。
+
+---
+
+## 你有没有过这种时刻
+
+任务已经跑到第三百轮，上下文快满了。
+
+你想切到 DeepSeek 省点钱——毕竟它便宜、够快、也能干活。
+结果压缩请求直接 502，几百轮的上下文断在那儿，只能从头再来。
+
+**这不是你的问题。**
+Codex 的自动压缩、工具调用、图片处理，从头到尾都是照着 GPT 的脾气写的。
+换个模型过去，就像让一个只会中文的人去读英文说明书——不是他笨，是没人给他翻译。
+
+Codex Ultra 就是那个翻译。它跑在你自己电脑上，把 Codex 的原生能力补齐给每一个模型。
 
 ```text
 你现在的样子                        用了 Codex Ultra 之后
 ─────────────────────              ─────────────────────
 Codex ──────────────────► GPT      Codex ──► Codex Ultra ──► DeepSeek
-       （只有 GPT 顺）                       └─► Gemini
+       （只有 GPT 顺）                             └─► Gemini
                                               ├─► Claude
                                               ├─► Grok
                                               ├─► MiniMax
@@ -44,7 +63,7 @@ Codex ──────────────────► GPT      Codex �
 
 ---
 
-## 它到底解决了什么
+## 它究竟替你修好了什么
 
 | 痛点 | 没有 Codex Ultra | 有 Codex Ultra |
 |---|---|---|
