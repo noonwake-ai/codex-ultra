@@ -217,3 +217,38 @@ class LiveMediaRoutingTests(unittest.TestCase):
             "media_models": ["gemini-3.8-flash"],
             "catalog": str(self.root / "missing.json")})
         self.assertEqual(resolved, ("gemini-3.8-flash",))
+
+
+class CompactorVendorTests(unittest.TestCase):
+    """Route B is vendor-agnostic; only GPT-native checkpoint export needs GPT."""
+
+    def test_a_non_gpt_compactor_is_accepted_for_ordinary_compaction(self):
+        catalog = {"models": [{"slug": "deepseek-flash"}, {"slug": "gpt-6-sol"}]}
+        # Must not raise: compaction itself has no vendor requirement.
+        install.validate_compactor_model("deepseek-flash", str(self.catalog_path(catalog)))
+
+    def test_every_effort_tier_supported_by_a_third_party_model_is_accepted(self):
+        for effort in ("low", "high", "max"):
+            with self.subTest(effort=effort):
+                self.assertIn(effort, adapter.EFFORTS)
+
+    def test_native_export_refuses_a_non_gpt_compactor(self):
+        """OpenAI's opaque blob must not be handed to a model that cannot read it."""
+        source = (install.HERE / "native_checkpoint.py").read_text()
+        self.assertIn("native_export_needs_gpt_compactor", source)
+        guard = source.index("native_export_needs_gpt_compactor")
+        request = source.index("'model':a.cfg['compactor_model']")
+        self.assertLess(guard, request,
+                        "the guard has to run before the ciphertext is sent upstream")
+
+    def catalog_path(self, catalog):
+        import json as _json
+        path = pathlib.Path(self.temp.name) / "models.json"
+        path.write_text(_json.dumps(catalog))
+        return path
+
+    def setUp(self):
+        self.temp = __import__("tempfile").TemporaryDirectory()
+
+    def tearDown(self):
+        self.temp.cleanup()

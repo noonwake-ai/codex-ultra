@@ -86,6 +86,13 @@ class NativeCheckpointCache:
 
     def export(self,item,headers):
         a=self.adapter
+        # A native checkpoint is OpenAI's own opaque ciphertext. Only a GPT-family
+        # compactor can read it; sending the blob to any other vendor asks a model to
+        # interpret bytes it cannot decode, which yields an invented or empty handoff.
+        # Refuse explicitly instead, so the operator gets an actionable error rather
+        # than a silently worthless checkpoint.
+        if not str(a.cfg.get('compactor_model') or '').startswith('gpt-'):
+            raise RuntimeError('native_export_needs_gpt_compactor')
         # This is Codex's journal-only metadata, not a wire field or part of ciphertext.
         item={k:v for k,v in item.items() if k!='internal_chat_message_metadata_passthrough'}
         if not isinstance(item.get('encrypted_content'),str) or not item['encrypted_content']:
