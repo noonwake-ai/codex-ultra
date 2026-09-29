@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-156%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-202%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -112,7 +112,7 @@ python3 install.py --upstream https://你的网关/v1 \
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-153 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
+202 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
 网关失败、目录策略、端点改写与回滚。CI 跑 Python 3.11 / 3.12 / 3.13。
 
 ---
@@ -146,6 +146,13 @@ python3 -m unittest discover -s . -p 'test_*.py'
 
 不冲突。它管「用哪个供应商」，Codex Ultra 管「这个模型怎么在 Codex 里跑」。
 安装时会同步它的记录，避免下次切换把适配层切没了。
+</details>
+
+<details><summary><b>网关不认 zstd，上传会不会被压坏？</b></summary>
+
+适配层把发出去的历史重新压缩（慢网络上这一项差好几倍）。网关不认的时候，
+它会自动换成不压缩的方式重发一次；连续几次之后暂停压缩并定期回试。
+想直接关掉，把 `config.json` 里的 `upstream_encoding` 改成 `"identity"` 再重启。
 </details>
 
 ---

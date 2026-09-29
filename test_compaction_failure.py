@@ -11,6 +11,26 @@ from adapter import Adapter
 from test_native_checkpoint import CFG, TOKEN, FakeTransport, completion
 
 
+def sent_body(kwargs):
+    """Decode the request body from either transport form.
+
+    The adapter may hand `requests` a `json=` structure or pre-serialized `data=`, and it
+    may compress that data with zstd. Protocol tests should not care which, so they read
+    every forwarded body through this helper.
+    """
+    if "json" in kwargs:
+        return kwargs["json"]
+    data = kwargs.get("data")
+    if isinstance(data, (bytes, bytearray)):
+        import zstandard
+        try:
+            data = zstandard.ZstdDecompressor().decompress(data)
+        except Exception:
+            pass
+        return json.loads(bytes(data).decode("utf-8"))
+    return data
+
+
 PARTIAL = "Synthetic partial handoff; this text must never enter diagnostics."
 PRIVATE = "synthetic-sensitive-content-not-for-telemetry"
 
@@ -82,9 +102,9 @@ class CompactionFailureTests(unittest.TestCase):
         self.assertEqual(adapter.stats["last_compaction"]["usage"]["reasoning_tokens"], 15990)
         self.assertEqual(len(list(Path(self.temp.name).glob("*.checkpoint"))), 1)
 
-        native_request = transport.calls[0]["json"]
+        native_request = sent_body(transport.calls[0])
         self.assertIn(native, native_request["input"])
-        b_request = transport.calls[1]["json"]
+        b_request = sent_body(transport.calls[1])
         self.assertEqual(b_request["model"], "gpt-6-sol")
         self.assertEqual(b_request["reasoning"]["effort"], "medium")
         b_text = b_request["input"][0]["content"][0]["text"]
@@ -138,7 +158,7 @@ class CompactionFailureTests(unittest.TestCase):
         self.assertEqual(diagnostic["seconds"], 260)
         self.assertEqual(diagnostic["max_output_tokens"], 16000)
         self.assertEqual(diagnostic["input_chars"], len(json.dumps(
-            transport.calls[0]["json"]["input"], ensure_ascii=False, separators=(",", ":"))))
+            sent_body(transport.calls[0])["input"], ensure_ascii=False, separators=(",", ":"))))
         for forbidden in (PRIVATE, PARTIAL, TOKEN, "message", "encrypted_content"):
             self.assertNotIn(forbidden, json.dumps(diagnostic))
 

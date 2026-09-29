@@ -13,6 +13,26 @@ from pathlib import Path
 from adapter import Adapter, PREFIX
 
 
+def sent_body(kwargs):
+    """Decode the request body from either transport form.
+
+    The adapter may hand `requests` a `json=` structure or pre-serialized `data=`, and it
+    may compress that data with zstd. Protocol tests should not care which, so they read
+    every forwarded body through this helper.
+    """
+    if "json" in kwargs:
+        return kwargs["json"]
+    data = kwargs.get("data")
+    if isinstance(data, (bytes, bytearray)):
+        import zstandard
+        try:
+            data = zstandard.ZstdDecompressor().decompress(data)
+        except Exception:
+            pass
+        return json.loads(bytes(data).decode("utf-8"))
+    return data
+
+
 CFG = {
     "upstream": "https://example.invalid",
     "compactor_model": "gpt-6-sol",
@@ -136,7 +156,7 @@ class NativeCheckpointTests(unittest.TestCase):
         self.assertEqual(expanded[2:], [latest_user, call, result])
         self.assertNotIn(OPAQUE, json.dumps(expanded))
         self.assertEqual(len(self.transport.calls), 1)
-        payload = self.transport.calls[0]["json"]
+        payload = sent_body(self.transport.calls[0])
         self.assertEqual(payload["model"], "gpt-6-sol")
         self.assertEqual(payload["reasoning"]["effort"], "medium")
         self.assertIn(self.native, payload["input"], "Native state must be a typed input item")
@@ -180,7 +200,7 @@ class NativeCheckpointTests(unittest.TestCase):
         )
         self.assert_checkpoint(expanded[0])
         self.assertEqual(expanded[1:], [tail])
-        self.assertFalse(any(i.get("type") == "compaction_trigger" for i in self.transport.calls[0]["json"]["input"]))
+        self.assertFalse(any(i.get("type") == "compaction_trigger" for i in sent_body(self.transport.calls[0])["input"]))
 
     def test_encrypted_reasoning_keeps_only_visible_summary_for_deepseek(self):
         opaque_reasoning = {

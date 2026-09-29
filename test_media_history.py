@@ -9,6 +9,26 @@ from test_compaction_failure import terminal
 from test_native_checkpoint import CFG, TOKEN, FakeTransport
 
 
+def sent_body(kwargs):
+    """Decode the request body from either transport form.
+
+    The adapter may hand `requests` a `json=` structure or pre-serialized `data=`, and it
+    may compress that data with zstd. Protocol tests should not care which, so they read
+    every forwarded body through this helper.
+    """
+    if "json" in kwargs:
+        return kwargs["json"]
+    data = kwargs.get("data")
+    if isinstance(data, (bytes, bytearray)):
+        import zstandard
+        try:
+            data = zstandard.ZstdDecompressor().decompress(data)
+        except Exception:
+            pass
+        return json.loads(bytes(data).decode("utf-8"))
+    return data
+
+
 def image(marker="synthetic"):
     return {"type": "input_image", "image_url": "data:image/png;base64," + marker}
 
@@ -118,7 +138,7 @@ class MediaHistoryTests(unittest.TestCase):
         original = copy.deepcopy(items)
         adapter, transport = self.adapter()
         checkpoint, _ = adapter.compact({"model": "deepseek-flash", "input": items}, {})
-        request = transport.calls[0]["json"]
+        request = sent_body(transport.calls[0])
         textual_input = json.dumps(request["input"], ensure_ascii=False)
         self.assertGreater(len(json.dumps(original)), 300000)
         self.assertLess(len(textual_input), 10000)
@@ -152,7 +172,7 @@ class MediaHistoryTests(unittest.TestCase):
         for item in retained:
             self.assertEqual(retained.count(item), 1)
         for request in transport.calls:
-            self.assertNotIn("base64", json.dumps(request["json"]["input"]))
+            self.assertNotIn("base64", json.dumps(sent_body(request)["input"]))
         self.assertEqual(initial, initial_copy)
         self.assertEqual(next_items, next_copy)
 

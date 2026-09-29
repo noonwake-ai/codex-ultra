@@ -23,6 +23,30 @@ HOP = {'host','content-length','transfer-encoding','connection','keep-alive',
 SERVICE = 'codex-ultra'
 ACCOUNT = 'checkpoint-key-v1'
 EFFORTS = frozenset(('none','low','medium','high','xhigh','max','ultra'))
+# A gateway that cannot read the uploaded body answers with this one generic 400. The
+# message does not distinguish a truncated upload from an unsupported Content-Encoding,
+# which is why it is the retry trigger. Sub2API emits it immediately after the body-read
+# call and before any model dispatch, and that is what makes a single retry safe.
+GATEWAY_BODY_READ_ERROR = 'Failed to read request body'
+# The gateway types its own body-read failure invalid_request_error. A relayed upstream
+# error carries "upstream_error" instead and may already have reached a model, so the type
+# is part of the signature rather than a detail next to it.
+GATEWAY_BODY_READ_TYPE = 'invalid_request_error'
+GATEWAY_PEEK_BYTES = 256 * 1024
+# Codex compresses its own upload, so this service re-compresses what it forwards instead of
+# inflating the body back to plain JSON. "identity" stays available because not every
+# Responses-compatible gateway decodes zstd.
+DEFAULT_UPSTREAM_ENCODING = 'zstd'
+UPSTREAM_ENCODINGS = ('identity', 'zstd')
+# One rejected upload proves nothing: the same 400 covers a truncated body. Only a run of
+# rejections justifies pausing compression, because pausing makes the upload several times
+# larger on exactly the slow links where truncation happens.
+ZSTD_DOWNGRADE_AFTER = 3
+# A downgrade is a pause, not a verdict. After the cooldown the adapter probes zstd again,
+# and the cooldown doubles so a gateway that genuinely cannot decode it converges to rare
+# probes instead of paying a failed attempt on every request.
+ZSTD_PROBE_COOLDOWN = 300
+ZSTD_PROBE_COOLDOWN_MAX = 3600
 KNOWN_INPUT_TYPES = frozenset((
     'message', 'reasoning', 'function_call', 'function_call_output',
     'custom_tool_call', 'custom_tool_call_output', 'compaction',
@@ -82,6 +106,27 @@ def user(text):
     return {'type':'message','role':'user','content':[{'type':'input_text','text':text}]}
 
 
+def body_read_failure(payload):
+    """True when a 400 body is exactly the gateway's "cannot read request body" error.
+
+    Matching the parsed fields rather than searching for the phrase keeps an unrelated
+    error that merely quotes it from triggering a retry. The status code is checked by
+    the caller: the signature alone would also match a 401/429/502/503 whose text was
+    relayed from an upstream that may already have run the model.
+    """
+    if not isinstance(payload,(bytes,bytearray)) or not payload:
+        return False
+    try:
+        decoded=json.loads(payload.decode('utf-8'))
+    except (UnicodeDecodeError,ValueError):
+        return False
+    if not isinstance(decoded,dict):
+        return False
+    error=decoded.get('error')
+    return (isinstance(error,dict) and error.get('message')==GATEWAY_BODY_READ_ERROR
+            and error.get('type')==GATEWAY_BODY_READ_TYPE)
+
+
 def resolve_media_models(cfg):
     """Which models need the tool-image step, read from the live catalog.
 
@@ -104,6 +149,12 @@ def resolve_media_models(cfg):
 
 
 class Adapter:
+    # Outbound body encoding. __init__ resolves it from config; the class attributes keep
+    # hand-constructed instances (as the protocol tests build) valid.
+    upstream_encoding=DEFAULT_UPSTREAM_ENCODING
+    zstd_rejections=0
+    zstd_probe_at=0
+    zstd_cooldown=ZSTD_PROBE_COOLDOWN
     def __init__(self, cfg, key, transport=requests, credential=None):
         self.cfg, self.transport = cfg, transport
         self.prefix = cfg.get('checkpoint_prefix') or PREFIX
@@ -115,7 +166,9 @@ class Adapter:
         self.lock = threading.Lock()
         self.compaction_slots = threading.BoundedSemaphore(2)
         self.stats = {'requests':0,'compactions':0,'errors':0,'native_exports':0,'native_cache_hits':0,
-                      'footprint_observations':0,'footprint_errors':0,'started_at':int(time.time())}
+                      'footprint_observations':0,'footprint_errors':0,'upstream_zstd':0,
+                      'upstream_zstd_bytes':0,'upstream_retries':0,'upstream_retries_ok':0,
+                      'upstream_zstd_downgraded':0,'started_at':int(time.time())}
         self.strategy = Strategy()
         u = urlsplit(cfg['upstream'])
         if u.scheme != 'https' or u.username or u.password or u.hostname in ('localhost','127.0.0.1'):
@@ -124,10 +177,54 @@ class Adapter:
             raise ValueError('compactor_model_required')
         if cfg.get('compactor_effort') not in EFFORTS:
             raise ValueError('compactor_effort_not_supported')
+        # A config written before this key existed means "never configured", not "chose
+        # identity", so it picks up the compressed upload. An explicit value always wins,
+        # which is what makes `"upstream_encoding": "identity"` the documented opt-out.
+        requested=cfg.get('upstream_encoding', DEFAULT_UPSTREAM_ENCODING)
+        requested=requested.strip().lower() if isinstance(requested,str) else ''
+        self.upstream_encoding=requested if requested in UPSTREAM_ENCODINGS else 'identity'
+        self.zstd_rejections=0
+        self.zstd_probe_at=0
+        self.zstd_cooldown=ZSTD_PROBE_COOLDOWN
         self.native_cache=NativeCheckpointCache(self)
 
-    def count(self, key):
-        with self.lock: self.stats[key] += 1
+    def count(self, key, amount=1):
+        with self.lock: self.stats[key] += amount
+
+    def note_zstd_outcome(self, accepted):
+        """Track whether the gateway accepts a compressed upload.
+
+        A gateway that cannot decode zstd answers with the same generic 400 as a truncated
+        upload, so a single rejection proves nothing. Only a run of rejections pauses
+        compression, and one success clears the streak.
+        """
+        with self.lock:
+            if accepted:
+                self.zstd_rejections=0
+                self.zstd_cooldown=ZSTD_PROBE_COOLDOWN
+                self.zstd_probe_at=0
+                return
+            self.zstd_rejections+=1
+            if self.zstd_rejections>=ZSTD_DOWNGRADE_AFTER and self.upstream_encoding=='zstd':
+                self.upstream_encoding='identity'
+                self.zstd_probe_at=time.time()+self.zstd_cooldown
+                self.zstd_cooldown=min(self.zstd_cooldown*2,ZSTD_PROBE_COOLDOWN_MAX)
+                self.stats['upstream_zstd_downgraded']+=1
+
+    def due_for_zstd_probe(self):
+        """Whether a paused zstd configuration should try compression again.
+
+        Only a downgrade schedules a probe, so an operator who wrote `identity` keeps
+        plain uploads for as long as that setting is in the config.
+        """
+        with self.lock:
+            if self.upstream_encoding=='zstd' or not self.zstd_probe_at:
+                return self.upstream_encoding=='zstd'
+            if time.time()>=self.zstd_probe_at:
+                self.upstream_encoding='zstd'
+                self.zstd_rejections=0
+                return True
+            return False
 
     @staticmethod
     def _json_bytes(value):
@@ -403,8 +500,59 @@ class Adapter:
                 'max_output_tokens':number(payload.get('max_output_tokens'))}
             with self.lock:self.stats['last_'+label]=diagnostic
 
-        with self.transport.post(self.cfg['upstream'].rstrip('/')+'/responses',
-                json=payload,headers=h,stream=True,timeout=(20,240)) as response:
+        # A compaction upload carries the serialized history, so it is the largest body this
+        # service sends and the most exposed to a truncated upload. Same treatment as the
+        # forward path: compress on the way out, and allow one retry on a fresh connection
+        # when the gateway reports it could not read the body — nothing reached a model then,
+        # so a second attempt cannot produce a second compaction.
+        url=self.cfg['upstream'].rstrip('/')+'/responses'
+        # A paused configuration re-probes zstd once its cooldown expires, so a temporary
+        # rejection cannot disable compression for the life of the process.
+        first='zstd' if self.due_for_zstd_probe() else 'identity'
+        response=None
+        zstd_rejected=False
+        for index,encoding in enumerate([first,'identity'] if first=='zstd' else ['identity','identity']):
+            kwargs={'headers':h,'stream':True,'timeout':(20,240)}
+            if encoding=='zstd':
+                encoded=zstd.ZstdCompressor(level=3).compress(
+                    json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode())
+                kwargs['data']=encoded
+                kwargs['headers']={**h,'Content-Encoding':'zstd'}
+                self.count('upstream_zstd')
+                self.count('upstream_zstd_bytes',len(encoded))
+            else:
+                # Serialize UTF-8 ourselves: letting requests re-encode with ensure_ascii=True
+                # escapes every non-ASCII character to \\uXXXX and inflates the fallback.
+                kwargs['data']=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+            candidate=self.transport.post(url,**kwargs)
+            rejected=False
+            # Only a 400 can carry the body-read signature. Checking the signature without the
+            # status would retry 401/429/502/503 whose text merely matches, which the evidence
+            # does not justify and which the forward path never did.
+            if candidate.status_code==400:
+                try:body=candidate.content or b''
+                except Exception:body=b''
+                rejected=body_read_failure(body)
+            if rejected and encoding=='zstd':
+                # Whether this counts against compression depends on how the plain fallback
+                # fares, which is only known on the next iteration. Keep it local: instance
+                # state would be shared across concurrent requests.
+                zstd_rejected=True
+            if rejected and index==0:
+                self.count('upstream_retries')
+                candidate.close()
+                continue
+            if not rejected:
+                if encoding=='zstd':
+                    self.note_zstd_outcome(True)
+                elif zstd_rejected:
+                    # Plain JSON got through where zstd did not, so the gateway dislikes the
+                    # compressed form.
+                    self.note_zstd_outcome(False)
+                if index>0:self.count('upstream_retries_ok')
+            response=candidate
+            break
+        with response as response:
             if response.status_code!=200:raise RuntimeError('compactor_http_'+str(response.status_code))
             for line in response.iter_lines(chunk_size=1):
                 if time.monotonic()-started>480:raise TimeoutError('compactor_deadline')
@@ -487,7 +635,8 @@ def handler_for(adapter):
             if self.path=='/health':
                 return self.reply(200,{'status':'ok','model':adapter.cfg['compactor_model'],
                     'effort':adapter.cfg['compactor_effort'],'strategy':'B_direct_handoff',
-                    'media_models':list(adapter.media_models),**adapter.stats})
+                    'media_models':list(adapter.media_models),
+                    'upstream_encoding':adapter.upstream_encoding,**adapter.stats})
             try:
                 if not self.allowed():return self.reply(401,{'error':{'code':'unauthorized'}})
                 if urlsplit(self.path).path not in ('/models','/v1/models'):return self.reply(404,{'error':{'code':'unsupported_path'}})
@@ -570,16 +719,70 @@ def handler_for(adapter):
             h['Accept-Encoding']='identity'
             if body is not None:h['Content-Type']='application/json'
             url=adapter.cfg['upstream'].rstrip('/')+self.path
-            with adapter.transport.request(method,url,json=body,headers=h,stream=True,timeout=(20,480)) as r:
-                self.send_response(r.status_code)
-                for k,v in r.headers.items():
-                    if k.lower() not in HOP and k.lower() not in ('server','date'):self.send_header(k,v)
-                self.end_headers()
-                # read1 drains available bytes rather than accumulating an SSE-sized block.
-                while True:
-                    chunk=r.raw.read1(65536,decode_content=True)
-                    if not chunk:break
-                    self.wfile.write(chunk);self.wfile.flush()
+            # Codex already compresses its upload; this service decompresses it to adapt the
+            # body, so it re-compresses on the way out instead of inflating the upload on
+            # exactly the slow links where a truncated body surfaces as the gateway's
+            # generic 400. Two separate concerns: which encoding leads, and the single retry
+            # allowed. The retry is available even when plain JSON leads, because a truncated
+            # upload is a transport event rather than an encoding problem.
+            first=('zstd' if (body is not None and adapter.due_for_zstd_probe()) else 'identity')
+            # Only the proven 400 signature earns a retry. A connection-level exception is NOT
+            # retried: it does not prove the body was rejected before dispatch, so a second
+            # attempt could execute the same request twice.
+            attempts=[first,'identity'] if first=='zstd' else ['identity','identity']
+            last=1
+            zstd_rejected=False
+            for index,encoding in enumerate(attempts):
+                kwargs={'headers':h,'stream':True,'timeout':(20,480)}
+                if body is None:
+                    kwargs['json']=None
+                elif encoding=='zstd':
+                    encoded=zstd.ZstdCompressor(level=3).compress(
+                        json.dumps(body,ensure_ascii=False,separators=(',',':')).encode())
+                    kwargs['data']=encoded
+                    kwargs['headers']={**h,'Content-Encoding':'zstd'}
+                    adapter.count('upstream_zstd')
+                    adapter.count('upstream_zstd_bytes',len(encoded))
+                else:
+                    # Serialize UTF-8 ourselves instead of letting requests re-encode with
+                    # ensure_ascii=True, which escapes every non-ASCII character to \\uXXXX.
+                    kwargs['data']=json.dumps(body,ensure_ascii=False,separators=(',',':')).encode()
+                response=adapter.transport.request(method,url,**kwargs)
+                with response as r:
+                    peek=None;rejected=False
+                    if r.status_code==400:
+                        peek=r.raw.read(GATEWAY_PEEK_BYTES,decode_content=True) or b''
+                        rejected=body_read_failure(peek)
+                    if rejected and encoding=='zstd':
+                        # Remember it; whether this counts against compression can only be
+                        # judged once the plain-JSON fallback has been tried.
+                        zstd_rejected=True
+                    if rejected and index<last:
+                        adapter.count('upstream_retries')
+                        continue
+                    if not rejected:
+                        if encoding=='zstd':
+                            adapter.note_zstd_outcome(True)
+                        elif zstd_rejected:
+                            # Plain JSON got through where zstd did not, so the gateway
+                            # dislikes the compressed form.
+                            adapter.note_zstd_outcome(False)
+                        # Only counts when the retry got past the body read; a retry that is
+                        # itself rejected must not be reported as recovered.
+                        if index>0:adapter.count('upstream_retries_ok')
+                    # A rejected final attempt means plain JSON failed too, so the cause is
+                    # transport and says nothing about compression. Say nothing.
+                    self.send_response(r.status_code)
+                    for k,v in r.headers.items():
+                        if k.lower() not in HOP and k.lower() not in ('server','date'):self.send_header(k,v)
+                    self.end_headers()
+                    if peek:self.wfile.write(peek)
+                    # read1 drains available bytes rather than accumulating an SSE-sized block.
+                    while True:
+                        chunk=r.raw.read1(65536,decode_content=True)
+                        if not chunk:break
+                        self.wfile.write(chunk);self.wfile.flush()
+                    return
     return Handler
 
 

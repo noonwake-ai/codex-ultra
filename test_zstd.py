@@ -6,7 +6,10 @@ from adapter import Adapter, handler_for
 class Up(BaseHTTPRequestHandler):
  def log_message(self,*args):pass
  def do_POST(self):
-  n=int(self.headers['Content-Length']);b=json.loads(self.rfile.read(n));self.server.body=b
+  raw=self.rfile.read(int(self.headers['Content-Length']))
+  if (self.headers.get('Content-Encoding') or '').lower()=='zstd':
+   raw=zstd.ZstdDecompressor().decompress(raw);self.server.compressed=True
+  b=json.loads(raw);self.server.body=b
   out={'id':'r','status':'completed','model':b['model'],'output':[]}
   data=('data: '+json.dumps({'type':'response.completed','response':out})+'\n\n').encode()
   self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(data)
@@ -17,14 +20,18 @@ class Tests(unittest.TestCase):
   # Adapter's safety guard is intentionally HTTPS-only; use a locally constructed instance for protocol test.
   a=object.__new__(Adapter)
   a.cfg=cfg;a.credential=lambda:'synthetic-token';a.transport=requests;a.lock=threading.Lock();a.compaction_slots=threading.BoundedSemaphore(2)
-  a.stats={'requests':0,'compactions':0,'errors':0,'footprint_observations':0,'footprint_errors':0,'started_at':0}
+  a.stats={'requests':0,'compactions':0,'errors':0,'footprint_observations':0,'footprint_errors':0,
+   'upstream_zstd':0,'upstream_zstd_bytes':0,'upstream_retries':0,'upstream_retries_ok':0,
+   'upstream_zstd_downgraded':0,'started_at':0}
   a.prefix=adapter_module.PREFIX;a.aad=adapter_module.AAD;a.media_models=();a.cipher=None
   local=ThreadingHTTPServer(('127.0.0.1',0),handler_for(a));threading.Thread(target=local.serve_forever,daemon=True).start()
   body={'model':'gpt-6-astra','stream':False,'tools':[{'type':'custom','name':'patch'}],'input':[{'role':'user','content':'DIAGNOSTIC_OK'}]}
+  upstream.compressed=False
   try:
    raw=zstd.ZstdCompressor(write_content_size=False).compress(json.dumps(body).encode())
    r=requests.post('http://127.0.0.1:%s/responses'%local.server_port,data=raw,headers={'Authorization':'Bearer synthetic-token','Content-Encoding':'zstd','originator':'Codex Desktop'})
    self.assertEqual(r.status_code,200);self.assertEqual(upstream.body,body)
+   self.assertTrue(upstream.compressed,'the adapter must re-compress the upload on the way out')
    bad=requests.post('http://127.0.0.1:%s/responses'%local.server_port,data=b'corrupt',headers={'Authorization':'Bearer synthetic-token','Content-Encoding':'zstd'})
    self.assertEqual(bad.status_code,400);self.assertEqual(a.stats['last_error']['phase'],'decode')
    self.assertNotIn('corrupt',json.dumps(a.stats))

@@ -20,6 +20,26 @@ import adapter
 import tool_image_bridge
 
 
+def sent_body(kwargs):
+    """Decode the request body from either transport form.
+
+    The adapter may hand `requests` a `json=` structure or pre-serialized `data=`, and it
+    may compress that data with zstd. Protocol tests should not care which, so they read
+    every forwarded body through this helper.
+    """
+    if "json" in kwargs:
+        return kwargs["json"]
+    data = kwargs.get("data")
+    if isinstance(data, (bytes, bytearray)):
+        import zstandard
+        try:
+            data = zstandard.ZstdDecompressor().decompress(data)
+        except Exception:
+            pass
+        return json.loads(bytes(data).decode("utf-8"))
+    return data
+
+
 HERE = Path(__file__).resolve().parent
 # The baseline is a frozen copy of the adapter *before* the call/result pairing
 # fix. Keeping it byte-stable is what makes the regression witness meaningful,
@@ -274,7 +294,7 @@ class PrepareForwardTests(OfflineCase):
         self.assertIn('Synthetic exported native state.', first['input'][0]['content'][0]['text'])
         self.assertEqual(image_parts(first['input']), [IMAGE])
         self.assertEqual(len(self.transport.exports), 1)
-        export = self.transport.exports[0][1]['json']
+        export = sent_body(self.transport.exports[0][1])
         self.assertEqual(export['model'], 'gpt-6-sol')
         self.assertEqual(export['reasoning'], {'effort': 'medium'})
         self.assertEqual(export['input'][0], body['input'][0])
@@ -388,14 +408,17 @@ class HTTPTests(OfflineCase):
                 self.assertEqual(data, EVENTS)
                 self.assertEqual(headers['X-Synthetic-Upstream'], 'preserved')
                 method, url, kwargs = self.transport.forwarded[-1]
-                sent = kwargs['json']
+                sent = sent_body(kwargs)
                 self.assertEqual(method, 'POST')
                 self.assertEqual(noninput(sent), noninput(body))
                 self.assertEqual(image_parts(sent['input']), [IMAGE])
                 self.assertEqual(sent['input'][2]['content'][0]['text'], 'Public continuation summary.')
                 self.assertEqual(sent['input'][3]['call_id'], 'call_a')
                 upstream_headers = {key.lower(): value for key, value in kwargs['headers'].items()}
-                self.assertNotIn('content-encoding', upstream_headers)
+                # The adapter decodes whatever Codex sent and re-encodes the body it forwards,
+                # so the outbound header describes the body that actually goes out instead of
+                # relaying the inbound value. All three inbound encodings must end up the same.
+                self.assertEqual(upstream_headers.get('content-encoding'), 'zstd')
                 self.assertNotIn('content-length', upstream_headers)
                 self.assertEqual(upstream_headers['x-codex-beta-features'], 'synthetic-feature')
                 self.assertEqual(upstream_headers['session_id'], 'synthetic-session')
@@ -411,7 +434,7 @@ class HTTPTests(OfflineCase):
         body['input'] = [self.checkpoint([parts[0], parts[-1]]), *parts]
         status, _, _ = self.post(body, 'zstd', '/v1/responses')
         self.assertEqual(status, 200)
-        sent = self.transport.forwarded[0][2]['json']
+        sent = sent_body(self.transport.forwarded[0][2])
         self.assertEqual(image_parts(sent['input']), [IMAGE, IMAGE])
         self.assertEqual(sum(item.get('type') == 'function_call' for item in sent['input']), 1)
         self.assertEqual(sum(item.get('type') == 'function_call_output' for item in sent['input']), 1)
@@ -423,7 +446,7 @@ class HTTPTests(OfflineCase):
         self.assertEqual(status, 200)
         self.assertEqual(len(self.transport.exports), 1)
         self.assertEqual(len(self.transport.forwarded), 1)
-        sent = self.transport.forwarded[0][2]['json']
+        sent = sent_body(self.transport.forwarded[0][2])
         self.assertFalse(any(item.get('type') == 'compaction' for item in sent['input']))
         self.assertEqual(image_parts(sent['input']), [IMAGE])
 
@@ -441,7 +464,7 @@ class HTTPTests(OfflineCase):
                     status, _, data = self.post(body, path=path)
                 self.assertEqual(status, 200)
                 self.assertEqual(data, EVENTS)
-                self.assertEqual(self.transport.forwarded[-1][2]['json'], expected)
+                self.assertEqual(sent_body(self.transport.forwarded[-1][2]), expected)
         self.assertEqual(self.transport.exports, [])
 
     def test_compact_routes_and_trigger_keep_existing_evidence_retained_and_strategy(self):

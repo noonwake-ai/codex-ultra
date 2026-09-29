@@ -246,6 +246,10 @@ def main(argv=None):
             "upstream": upstream,
             "compactor_model": args.compactor_model,
             "compactor_effort": args.compactor_effort,
+            # Re-compress what the adapter forwards, so a slow link is not asked to upload
+            # the uncompressed history. `identity` is the documented opt-out for a gateway
+            # that cannot decode zstd.
+            "upstream_encoding": "zstd",
             "media_models": read_media_models(args.catalog),
             "catalog": str(pathlib.Path(args.catalog).expanduser().resolve())
                        if args.catalog else None,

@@ -178,7 +178,8 @@ curl -s http://127.0.0.1:15731/health
 | `upstream_must_be_https` | 网关地址必须是 `https://` 开头 |
 | `upstream_must_not_be_loopback` | 网关地址不能填 `localhost` / `127.0.0.1`，会形成代理环路 |
 | `service_not_healthy_route_unchanged` | 服务没起来。**客户端配置没被改动**，是安全的失败。看 `~/Library/Application Support/Codex Ultra/service-error.log` |
-| `already_installed_use_configure_status` | 之前装过。让用户先 `python3 configure.py status` 看状态，不要覆盖 |
+| `already_installed_use_configure_status` | 之前装过。让用户先 `python3 configure.py status` 看状态，不要覆盖；要升级就按 [INSTALL.md](INSTALL.md) 的「升级一个已经装好的 Codex Ultra」替换源码再重启 |
+| 网关不认 zstd（`upstream_encoding`） | 不用改代码。适配层会自动换成不压缩的方式重发；要彻底关掉就把 `config.json` 改成 `"upstream_encoding": "identity"` 再重启 |
 | 端口 15731 被占用 | 换端口：`--port 15741`，同时 `configure.py apply --local http://127.0.0.1:15741` |
 
 完整说明见 [安装与部署](INSTALL.md)，模型能力策略见 [模型能力表](MODELS.md)。

@@ -3,6 +3,26 @@ from http.server import ThreadingHTTPServer
 import requests
 from adapter import Adapter, handler_for, PREFIX
 
+
+def sent_body(kwargs):
+    """Decode the request body from either transport form.
+
+    The adapter may hand `requests` a `json=` structure or pre-serialized `data=`, and it
+    may compress that data with zstd. Protocol tests should not care which, so they read
+    every forwarded body through this helper.
+    """
+    if "json" in kwargs:
+        return kwargs["json"]
+    data = kwargs.get("data")
+    if isinstance(data, (bytes, bytearray)):
+        import zstandard
+        try:
+            data = zstandard.ZstdDecompressor().decompress(data)
+        except Exception:
+            pass
+        return json.loads(bytes(data).decode("utf-8"))
+    return data
+
 CFG={'upstream':'https://example.invalid','compactor_model':'gpt-6-sol',
      'compactor_effort':'medium','port':0}
 TOKEN='synthetic-local-auth-not-a-real-secret'
@@ -18,7 +38,7 @@ class FakeTransport:
     def __init__(self):self.calls=[]
     def post(self,url,**kw):
         self.calls.append(kw)
-        if kw['json'].get('input',[{}])[0].get('type')=='compaction':
+        if sent_body(kw).get('input',[{}])[0].get('type')=='compaction':
             class NativeResponse(FakeResponse):
                 def iter_lines(self,**kwargs):
                     for line in super().iter_lines(**kwargs):
@@ -63,7 +83,7 @@ class Tests(unittest.TestCase):
             h={'Authorization':'Bearer '+TOKEN,'Content-Encoding':'gzip'}
             r=requests.post(url+'/responses',data=gzip.compress(json.dumps(body).encode()),headers=h)
             self.assertEqual(r.status_code,200);self.assertIn('response.completed',r.text)
-            payload=self.transport.calls[-1]['json']
+            payload=sent_body(self.transport.calls[-1])
             self.assertEqual(payload['model'],'gpt-6-sol');self.assertEqual(payload['reasoning']['effort'],'medium')
             self.assertIn('Only local preview',json.dumps(payload));self.assertNotIn('compaction_trigger',json.dumps(payload))
             h={'Authorization':'Bearer '+TOKEN}
@@ -91,7 +111,7 @@ class Tests(unittest.TestCase):
                  headers={'Authorization':'Bearer '+TOKEN,'x-codex-beta-features':'remote_compaction_v2'})
             self.assertEqual(r.status_code,200);self.assertEqual(r.headers['X-Request-ID'],'synthetic-id')
             forwarded=transport.calls[-1][2]
-            self.assertEqual(forwarded['json'],body)
+            self.assertEqual(sent_body(forwarded),body)
             self.assertEqual(forwarded['headers']['x-codex-beta-features'],'remote_compaction_v2')
             self.assertEqual(self.a.stats['compactions'],0)
         finally:server.shutdown();server.server_close()

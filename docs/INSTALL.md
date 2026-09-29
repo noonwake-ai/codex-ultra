@@ -168,6 +168,38 @@ launchctl kickstart -k "gui/$(id -u)/ai.codexultra.local-adapter"
 > curl -s http://127.0.0.1:15731/health
 > ```
 
+### 升级一个已经装好的 Codex Ultra
+
+升级不换供应商、不动 key、不动聊天记录，只替换服务源码再重启：
+
+```bash
+cd codex-ultra && git pull --ff-only
+ROOT="$HOME/Library/Application Support/Codex Ultra"
+for f in adapter.py tool_image_bridge.py model_presets.py build_catalog.py \
+         direct_handoff.py native_checkpoint.py configure.py requirements.txt; do
+  cp "$f" "$ROOT/$f"
+done
+"$ROOT/runtime/bin/python" -m pip install --quiet -r "$ROOT/requirements.txt"
+launchctl kickstart -k "gui/$(id -u)/ai.codexultra.local-adapter"
+curl -s http://127.0.0.1:15731/health
+```
+
+> `install.py` 遇到已存在的 `config.json` 会拒绝重装，这是故意的：它不会覆盖你的配置。
+> 所以升级走上面这条路径，`config.json` 里你自己改过的东西一律保留。
+
+### 上传压缩（`upstream_encoding`）
+
+Codex 本来就把请求体压缩后再发给适配层。适配层要把它解开、适配成网关能吃的形状，
+所以**发出去之前会重新压缩**，而不是把几 MB 的明文再上传一遍——慢网络上，正是这种大
+上传最容易断在半路，被网关记成「读不到请求体」。
+
+- 默认 `zstd`。老配置里没有这个字段也一样生效，不需要手动迁移。
+- 当前用的是哪种，直接看 `/health` 里的 `upstream_encoding`。
+- 万一你的网关不认 zstd：适配层发现压缩请求被拒时，会自动换成不压缩的方式重发一次，
+  你不会看到失败；连续几次之后它会暂停压缩，冷却 5 分钟起、每次翻倍、最多 1 小时，
+  到点自动再试一次。临时抖动不会把上传永久放大。
+- 想彻底关掉：把 `config.json` 改成 `"upstream_encoding": "identity"`，重启服务。
+
 ---
 
 ## 五、回滚
