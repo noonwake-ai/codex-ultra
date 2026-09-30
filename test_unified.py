@@ -226,6 +226,30 @@ class PrepareForwardTests(OfflineCase):
         self.assertEqual(self.transport.forwarded, [])
         self.assertEqual(self.transport.exports, [])
 
+    def test_provider_native_thinking_survives_for_third_party_models(self):
+        """Thinking-mode providers require their own reasoning_text back on the next turn.
+
+        Regression: expand() used to delete every non-GPT reasoning item, so DeepSeek in
+        thinking mode rejected the follow-up with "The `reasoning_text` in the thinking mode
+        must be passed back to the API" and the thread died about a second into turn two.
+        """
+        native_thinking = {'type': 'reasoning', 'id': 'rs_native_thinking', 'summary': [],
+                           'content': [{'type': 'reasoning_text', 'text': 'provider-native chain'}]}
+        tail = {'role': 'user', 'content': [{'type': 'input_text', 'text': 'Continue.'}]}
+        original = [native_thinking, tail]
+        snapshot = copy.deepcopy(original)
+        expanded = self.adapter.expand(original, 'deepseek-flash')
+        self.assertEqual(original, snapshot, 'input must not be mutated')
+        self.assertEqual(expanded, [native_thinking, tail])
+        self.assertEqual(self.transport.forwarded, [])
+        self.assertEqual(self.transport.exports, [])
+
+    def test_opaque_reasoning_still_downgrades_to_public_summary(self):
+        """The summary-only conversion stays in force for non-portable OpenAI reasoning."""
+        expanded = self.adapter.expand([reasoning()], 'deepseek-flash')
+        self.assertFalse(any(item.get('type') == 'reasoning' for item in expanded))
+        self.assertIn('Public continuation summary.', json.dumps(expanded))
+
     def test_local_retained_group_normalizes_after_decryption_without_mutation(self):
         original = fixture()
         cp = self.checkpoint(group())

@@ -144,6 +144,22 @@ TOOL_RESULT_TYPES = frozenset(('function_call_output', 'custom_tool_call_output'
 MEDIA_PART_TYPES = frozenset(('input_image', 'input_file', 'input_audio', 'input_video'))
 
 
+def provider_native_reasoning(item):
+    """True when a reasoning item carries the routed model's own thinking text.
+
+    Thinking-mode third-party providers (DeepSeek thinking, Gemini thinking) require their
+    previous ``reasoning_text`` to be echoed back on the next turn. Dropping it makes the
+    upstream reject the follow-up with "The `reasoning_text` in the thinking mode must be
+    passed back to the API". OpenAI-style opaque reasoning travels as ``encrypted_content``
+    and stays non-portable, so it keeps the summary-only conversion.
+    """
+    if not isinstance(item,dict): return False
+    if item.get('encrypted_content'): return False
+    parts=item.get('content')
+    if not isinstance(parts,list): return False
+    return any(isinstance(part,dict) and part.get('type')=='reasoning_text' for part in parts)
+
+
 def keychain_key(service=SERVICE, account=ACCOUNT, create=False):
     # One exact item lookup per process, no discovery, no decrypted keychain dump.
     r = subprocess.run(['/usr/bin/security','find-generic-password','-s',service,
@@ -460,7 +476,7 @@ class Adapter:
                 else:
                     out.append(user('<context_checkpoint>\n'+self.export_native(item,headers or {})+'\n</context_checkpoint>'))
             elif (item.get('type')=='reasoning' and not model.startswith('gpt-')
-                    and not preserve_reasoning):
+                    and not preserve_reasoning and not provider_native_reasoning(item)):
                 # Hidden model reasoning is not portable task state. Keep only its public summary,
                 # with original messages and tool call/results still present exactly once.
                 texts=[p['text'] for p in item.get('summary',[]) if isinstance(p,dict) and p.get('type')=='summary_text' and isinstance(p.get('text'),str)]
