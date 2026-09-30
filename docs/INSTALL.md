@@ -196,6 +196,13 @@ curl -s http://127.0.0.1:15731/health
 
 Codex Ultra 因此自带 `GatewayTransport`：握手用短的 CONNECT 超时，**上传阶段单独给
 `GATEWAY_UPLOAD_BUDGET`（默认 600 秒）**，并且每次写入前重设，连接复用也覆盖得到。
+代理路径也覆盖：`requests` 会自己用 `proxy_from_url` 建代理管理器，拿到的是标准连接池，
+所以 `GatewayTransport` 连 `proxy_manager_for` 一起接管——否则只要设了 `HTTP(S)_PROXY`，
+上传预算会静默失效、20 秒限制原样回来。
+
+反证（同一台机器四组对照）：原始 `requests` 在 20.01 秒掐断需 24 秒的 body；
+换成 `gateway_transport()` 后 24.01 秒完整送达；而对同一个网关用 0.1 MB/s 慢速上传
+4 MB（需 40 秒），网关 **39.65 秒**才读完并正常返回 400，说明断点确实在客户端这一侧。
 
 如果你自己写脚本直连网关，别只写 `timeout=(20, 480)` 就以为上传有 8 分钟预算——
 真正生效的是那个 20 秒。实测：同一个 26 MB body，`(20,480)` 在 20.0 秒被掐断，

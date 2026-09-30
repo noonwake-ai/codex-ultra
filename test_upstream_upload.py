@@ -708,6 +708,35 @@ class UploadDeadlineTests(unittest.TestCase):
         self.assertIsInstance(session.get_adapter('https://gateway.invalid/v1'),
                               adapter_module.GatewayTransport)
 
+    def test_a_configured_proxy_keeps_the_upload_budget(self):
+        """A proxy must not silently restore the connect deadline on the body.
+
+        requests builds proxy managers itself (proxy_from_url), and those carry the stock pool
+        classes; without the override the body would again inherit the connect timeout.
+        """
+        import adapter as adapter_module
+        transport = adapter_module.GatewayTransport()
+        manager = transport.proxy_manager_for('http://127.0.0.1:9')
+        for scheme in ('http', 'https'):
+            self.assertIs(manager.pool_classes_by_scheme[scheme],
+                          adapter_module.GATEWAY_POOL_CLASSES[scheme],
+                          'proxy manager lost the upload-budget pools for ' + scheme)
+
+    def test_proxy_managers_are_reused_not_rebuilt(self):
+        import adapter as adapter_module
+        transport = adapter_module.GatewayTransport()
+        first = transport.proxy_manager_for('http://127.0.0.1:9')
+        second = transport.proxy_manager_for('http://127.0.0.1:9')
+        self.assertIs(first, second, 'proxy managers must stay cached like the stock adapter')
+
+    def test_the_proxy_pool_mapping_is_complete(self):
+        """Guard against a rename that quietly drops one scheme."""
+        import adapter as adapter_module
+        self.assertEqual(set(adapter_module.GATEWAY_POOL_CLASSES), {'http', 'https'})
+        self.assertIsNot(adapter_module.GATEWAY_POOL_CLASSES['https'],
+                         adapter_module.GatewayHTTPConnectionPool)
+
+
     def test_the_budget_leaves_room_for_a_large_upload(self):
         import adapter as adapter_module
         self.assertGreater(adapter_module.GATEWAY_UPLOAD_BUDGET, 60)

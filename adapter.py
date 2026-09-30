@@ -86,14 +86,30 @@ class GatewayHTTPSConnectionPool(urllib3.HTTPSConnectionPool):
     ConnectionCls = GatewayHTTPSConnection
 
 
+GATEWAY_POOL_CLASSES = {'http': GatewayHTTPConnectionPool, 'https': GatewayHTTPSConnectionPool}
+
+
 class GatewayTransport(requests.adapters.HTTPAdapter):
     """Stock adapter with pools that give the request body its own deadline."""
 
+    @staticmethod
+    def _with_upload_budget(manager):
+        # A manager built by proxy_from_url / ProxyManager carries the stock pool classes, so the
+        # body would silently fall back to the connect deadline whenever a proxy is configured.
+        manager.pool_classes_by_scheme = dict(GATEWAY_POOL_CLASSES)
+        return manager
+
     def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
-        self.poolmanager = urllib3.PoolManager(num_pools=connections, maxsize=maxsize,
-                                              block=block, **pool_kwargs)
-        self.poolmanager.pool_classes_by_scheme = {'http': GatewayHTTPConnectionPool,
-                                                   'https': GatewayHTTPSConnectionPool}
+        self.poolmanager = self._with_upload_budget(
+            urllib3.PoolManager(num_pools=connections, maxsize=maxsize, block=block, **pool_kwargs))
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        # requests keeps its own cache of proxy managers; mirror the stock bookkeeping and make
+        # sure the manager we hand back still extends the upload deadline.
+        if proxy in self.proxy_manager:
+            return self.proxy_manager[proxy]
+        manager = super().proxy_manager_for(proxy, **proxy_kwargs)
+        return self._with_upload_budget(manager)
 
 
 def gateway_transport():
