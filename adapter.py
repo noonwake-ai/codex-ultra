@@ -7,6 +7,7 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 import requests
+import urllib3
 import zstandard as zstd
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import tool_image_bridge
@@ -32,6 +33,77 @@ GATEWAY_BODY_READ_ERROR = 'Failed to read request body'
 # error carries "upstream_error" instead and may already have reached a model, so the type
 # is part of the signature rather than a detail next to it.
 GATEWAY_BODY_READ_TYPE = 'invalid_request_error'
+# urllib3 installs the CONNECT timeout on the socket for the whole request and only swaps in the
+# READ timeout once it starts reading the response (connectionpool.py sets
+# `conn.timeout = timeout_obj.connect_timeout` before the request, `= read_timeout` later). The
+# body copy therefore inherits the connect deadline: a 26 MB upload over a 1.5 MB/s uplink aborts
+# at 20.0 s, the gateway sees a truncated body and answers `400 Failed to read request body`, and
+# the 400-signature retry cannot help because the failure happens before any response exists.
+# Measured 2026-09-30 against the real gateway. These connections re-apply a body deadline right
+# before each write, so the handshake keeps the short connect timeout while the upload gets its
+# own budget.
+GATEWAY_UPLOAD_BUDGET = 600.0
+
+
+def _upload_budget_connection(base):
+    class Connection(base):
+        upload_budget = GATEWAY_UPLOAD_BUDGET
+
+        def _extend_upload_deadline(self):
+            # Before a fresh connection is established there is no socket yet; connect() covers
+            # that case, and this covers pooled connections that urllib3 has just re-armed.
+            sock = getattr(self, 'sock', None)
+            if sock is not None:
+                try:
+                    sock.settimeout(self.upload_budget)
+                except OSError:
+                    pass
+
+        def connect(self):
+            base.connect(self)
+            self._extend_upload_deadline()
+
+        def send(self, data):
+            self._extend_upload_deadline()
+            return base.send(self, data)
+    Connection.__name__ = base.__name__
+    return Connection
+
+
+class GatewayHTTPConnection(_upload_budget_connection(urllib3.connection.HTTPConnection)):
+    pass
+
+
+class GatewayHTTPSConnection(_upload_budget_connection(urllib3.connection.HTTPSConnection)):
+    pass
+
+
+class GatewayHTTPConnectionPool(urllib3.HTTPConnectionPool):
+    ConnectionCls = GatewayHTTPConnection
+
+
+class GatewayHTTPSConnectionPool(urllib3.HTTPSConnectionPool):
+    ConnectionCls = GatewayHTTPSConnection
+
+
+class GatewayTransport(requests.adapters.HTTPAdapter):
+    """Stock adapter with pools that give the request body its own deadline."""
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        self.poolmanager = urllib3.PoolManager(num_pools=connections, maxsize=maxsize,
+                                              block=block, **pool_kwargs)
+        self.poolmanager.pool_classes_by_scheme = {'http': GatewayHTTPConnectionPool,
+                                                   'https': GatewayHTTPSConnectionPool}
+
+
+def gateway_transport():
+    """A requests-compatible transport whose uploads are not bounded by the connect timeout."""
+    session = requests.Session()
+    session.mount('http://', GatewayTransport())
+    session.mount('https://', GatewayTransport())
+    return session
+
+
 GATEWAY_PEEK_BYTES = 256 * 1024
 # Codex compresses its own upload, so this service re-compresses what it forwards instead of
 # inflating the body back to plain JSON. "identity" stays available because not every
@@ -155,8 +227,9 @@ class Adapter:
     zstd_rejections=0
     zstd_probe_at=0
     zstd_cooldown=ZSTD_PROBE_COOLDOWN
-    def __init__(self, cfg, key, transport=requests, credential=None):
-        self.cfg, self.transport = cfg, transport
+    def __init__(self, cfg, key, transport=None, credential=None):
+        self.cfg = cfg
+        self.transport = transport or gateway_transport()
         self.prefix = cfg.get('checkpoint_prefix') or PREFIX
         self.aad = (cfg.get('checkpoint_aad') or AAD.decode()).encode()
         self.cipher = AESGCM(key)

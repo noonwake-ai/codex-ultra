@@ -187,6 +187,20 @@ curl -s http://127.0.0.1:15731/health
 > `install.py` 遇到已存在的 `config.json` 会拒绝重装，这是故意的：它不会覆盖你的配置。
 > 所以升级走上面这条路径，`config.json` 里你自己改过的东西一律保留。
 
+### 长上下文上传不能只有握手超时
+
+`urllib3` 在发请求前把连接超时放到 socket 上，直到开始读响应才换成读超时。也就是说
+`timeout=(connect, read)` 里的 **connect 值同时管着整个请求体上传**：一段 26 MB 的请求体在
+约 1.5 MB/s 的链路上需要 17 秒以上，发送阶段一旦阻塞超过 20 秒，客户端就会在 body 发到一半时
+断开，网关读到截断的 body，回 `400 Failed to read request body`。
+
+Codex Ultra 因此自带 `GatewayTransport`：握手用短的 CONNECT 超时，**上传阶段单独给
+`GATEWAY_UPLOAD_BUDGET`（默认 600 秒）**，并且每次写入前重设，连接复用也覆盖得到。
+
+如果你自己写脚本直连网关，别只写 `timeout=(20, 480)` 就以为上传有 8 分钟预算——
+真正生效的是那个 20 秒。实测：同一个 26 MB body，`(20,480)` 在 20.0 秒被掐断，
+放宽后 63.5 秒完整传完。
+
 ### 上传压缩（`upstream_encoding`）
 
 Codex 本来就把请求体压缩后再发给适配层。适配层要把它解开、适配成网关能吃的形状，

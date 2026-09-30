@@ -638,3 +638,76 @@ class AuditBoundaryTests(unittest.TestCase):
         self.assertEqual(adapter.zstd_probe_at, 0)
         self.assertFalse(adapter.due_for_zstd_probe())
         self.assertEqual(adapter.upstream_encoding, 'identity')
+
+
+class UploadDeadlineTests(unittest.TestCase):
+    """A request body must not be bounded by the connect timeout.
+
+    urllib3 arms the socket with the CONNECT value for the whole request and only installs the
+    READ value once the response starts being read, so a body that needs longer than the connect
+    deadline to leave the socket is cut off mid-upload and the gateway answers
+    `400 Failed to read request body`. Measured 2026-09-30 on a real link: a 26 MB body at about
+    1.5 MB/s died at exactly 20.0 s with the stock adapter and completed unchanged once the
+    connection re-armed its own upload budget.
+    """
+
+    def test_the_body_gets_its_own_deadline_even_on_a_reused_connection(self):
+        import http.server
+        import urllib3
+        import adapter as adapter_module
+        seen = []
+
+        class Recording(adapter_module.GatewayHTTPConnection):
+            def send(self, data):
+                self._extend_upload_deadline()
+                seen.append(self.sock.gettimeout() if getattr(self, 'sock', None) else None)
+                return super().send(data)
+
+        class Pool(urllib3.HTTPConnectionPool):
+            ConnectionCls = Recording
+
+        class SessionAdapter(requests.adapters.HTTPAdapter):
+            def init_poolmanager(self, connections, maxsize, block=False, **kwargs):
+                self.poolmanager = urllib3.PoolManager(num_pools=connections, maxsize=maxsize,
+                                                       block=block, **kwargs)
+                self.poolmanager.pool_classes_by_scheme = {'http': Pool}
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                self.send_response(400)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'{}')
+
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            session = requests.Session()
+            session.mount('http://', SessionAdapter())
+            for _ in range(2):                 # the second call reuses the pooled connection
+                session.post('http://127.0.0.1:%d/x' % server.server_port,
+                             data=b'x' * 200000, timeout=(20, 480))
+            armed = [value for value in seen if value is not None]
+            self.assertTrue(armed, 'no socket timeout was observed while sending')
+            for value in armed:
+                self.assertEqual(value, adapter_module.GATEWAY_UPLOAD_BUDGET,
+                                 'the body was still bounded by the connect timeout')
+        finally:
+            server.shutdown(); server.server_close()
+
+    def test_the_default_transport_is_the_upload_budget_session(self):
+        import adapter as adapter_module
+        session = adapter_module.gateway_transport()
+        self.assertIsInstance(session, requests.Session)
+        self.assertIsInstance(session.get_adapter('https://gateway.invalid/v1'),
+                              adapter_module.GatewayTransport)
+
+    def test_the_budget_leaves_room_for_a_large_upload(self):
+        import adapter as adapter_module
+        self.assertGreater(adapter_module.GATEWAY_UPLOAD_BUDGET, 60)
