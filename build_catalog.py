@@ -121,12 +121,13 @@ def write_catalog(path, catalog):
 def cmd_list_families():
     rows = model_presets.describe()
     width = max(len(row["vendor"]) for row in rows)
-    print("Vendor".ljust(width), "Context policy", "Reasoning", "Media bridge")
+    print("Vendor".ljust(width), "Context policy", "Reasoning", "Media bridge", "Sub agent")
     for row in rows:
         cap = row["standard_cap"]
         policy = row["context_policy"] + (f" (cap {cap})" if cap else "")
         print(row["vendor"].ljust(width), policy.ljust(14),
-              row["reasoning"].ljust(9), row["media"])
+              row["reasoning"].ljust(9), row["media"].ljust(12),
+              row.get("multi_agent") or "-")
     print("\nPatterns:")
     for row in rows:
         print("  " + row["vendor"] + ": " + ", ".join(row["match"]))

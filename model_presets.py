@@ -44,6 +44,18 @@ GATEWAY = "gateway"
 PRESERVE = "preserve"
 SUMMARIZE = "summarize"
 
+# Multi-agent (Codex's own Sub Agent / collaboration tools) policy.
+#   v2   - advertise the collaboration surface (spawn_agent, wait_agent, followup_task,
+#          send_message, interrupt_agent, list_agents) for this model.
+#   None - leave the field exactly as the gateway reported it.
+# The switch lives in the model catalog, not in the model: the tools are executed by the
+# Codex client, so the same policy works for a third-party model as for a first-party one.
+# Verified against Codex 0.159.0 by diffing `codex debug prompt-input`: with `v2` all six
+# tools appear in the model-visible prompt; without it none do, and a reasoning effort of
+# `ultra` on its own never enables them. End-to-end delegation through a local adapter
+# completed on deepseek-flash and gemini-3.8-flash.
+MULTI_AGENT_V2 = "v2"
+
 # Media transport policy.
 #   native   - the route keeps tool results with their images; no rewriting.
 #   relocate - the route breaks call/result pairing around images, so the image
@@ -53,7 +65,7 @@ RELOCATE = "relocate"
 
 
 def _family(vendor, match, *, context=MAX, standard_cap=None, reasoning=SUMMARIZE,
-            media=NATIVE, modes=("text",), note=""):
+            media=NATIVE, modes=("text",), note="", multi_agent=MULTI_AGENT_V2):
     return {
         "vendor": vendor,
         "match": tuple(match),
@@ -63,6 +75,7 @@ def _family(vendor, match, *, context=MAX, standard_cap=None, reasoning=SUMMARIZ
         "media": media,
         "modalities": tuple(modes),
         "note": note,
+        "multi_agent": multi_agent,
     }
 
 
@@ -156,6 +169,9 @@ def apply_policy(model, overrides=None):
     note = policy.get("note")
     if note and isinstance(result.get("description"), str) and note not in result["description"]:
         result["description"] = result["description"].rstrip() + " " + note
+    multi_agent = policy.get("multi_agent")
+    if isinstance(multi_agent, str) and multi_agent:
+        result["multi_agent_version"] = multi_agent
     return result
 
 
@@ -214,5 +230,6 @@ def describe(overrides=None):
             "standard_cap": policy.get("standard_cap"),
             "reasoning": policy.get("reasoning"),
             "media": policy.get("media"),
+            "multi_agent": policy.get("multi_agent"),
         })
     return rows

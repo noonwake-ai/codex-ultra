@@ -57,6 +57,48 @@ class PolicyTests(unittest.TestCase):
                                             overrides)
         self.assertEqual(result["context_window"], 200000)
 
+    def test_every_family_advertises_the_collaboration_surface(self):
+        """Without this field Codex never injects spawn_agent/wait_agent and friends.
+
+        The README promises Sub Agent keeps working with a third-party model; that promise
+        is only true when the catalog entry carries `multi_agent_version`.
+        """
+        for vendor in model_presets.known_vendors():
+            with self.subTest(vendor=vendor):
+                family = next(f for f in model_presets.FAMILIES if f["vendor"] == vendor)
+                self.assertEqual(family["multi_agent"], model_presets.MULTI_AGENT_V2)
+
+    def test_policy_stamps_the_multi_agent_field(self):
+        result = model_presets.apply_policy(self.model("claude-opus-5"))
+        self.assertEqual(result["multi_agent_version"], "v2")
+
+    def test_a_family_can_opt_out(self):
+        family = dict(model_presets.FAMILIES[0], multi_agent=None)
+        original = model_presets.FAMILIES
+        model_presets.FAMILIES = (family,)
+        try:
+            source = self.model("gpt-6-sol")
+            result = model_presets.apply_policy(source)
+            self.assertNotIn("multi_agent_version", result)
+            untouched = self.model("gpt-6-sol")
+            untouched["multi_agent_version"] = "v1"
+            self.assertEqual(model_presets.apply_policy(untouched)["multi_agent_version"], "v1")
+        finally:
+            model_presets.FAMILIES = original
+
+    def test_an_opting_out_override_wins(self):
+        overrides = {"claude-opus-5": {"multi_agent": None}}
+        result = model_presets.apply_policy(self.model("claude-opus-5"), overrides)
+        self.assertNotIn("multi_agent_version", result)
+
+    def test_unknown_models_are_never_stamped(self):
+        result = model_presets.apply_policy(self.model("some-private-ft-2026"))
+        self.assertNotIn("multi_agent_version", result)
+
+    def test_describe_reports_the_multi_agent_policy(self):
+        table = {row["vendor"]: row for row in model_presets.describe()}
+        self.assertEqual(table["DeepSeek"]["multi_agent"], "v2")
+
     def test_compact_budget_is_lowered_with_the_window(self):
         overrides = {"deepseek-v4-flash": {"context": model_presets.STANDARD,
                                            "standard_cap": 100000}}
