@@ -250,6 +250,32 @@ class PrepareForwardTests(OfflineCase):
         self.assertFalse(any(item.get('type') == 'reasoning' for item in expanded))
         self.assertIn('Public continuation summary.', json.dumps(expanded))
 
+    def test_real_shape_provider_native_thinking_carries_surrogate_id(self):
+        """Production shape carries a short surrogate id next to reasoning_text.
+
+        Live sessions store ``encrypted_content`` as a 38-character UUID on
+        thinking-mode items while the chain lives in ``content[].reasoning_text``.
+        A bare truthiness test therefore dropped 845/845 such items in real
+        traffic; only long OpenAI-style blobs may count as opaque state.
+        """
+        native_thinking = {'type': 'reasoning', 'id': 'rs_prod_native',
+                           'encrypted_content': 'bc86b47b-69ca-4a37-a796-0c1112fb9f77-0',
+                           'summary': [],
+                           'content': [{'type': 'reasoning_text', 'text': 'provider-native chain'}]}
+        tail = {'role': 'user', 'content': [{'type': 'input_text', 'text': 'Continue.'}]}
+        expanded = self.adapter.expand([native_thinking, tail], 'deepseek-flash')
+        self.assertEqual(expanded, [native_thinking, tail])
+
+    def test_real_shape_openai_ciphertext_still_downgrades(self):
+        """A long gAAAAA-style blob keeps the summary-only conversion."""
+        opaque = {'type': 'reasoning', 'id': 'rs_prod_opaque',
+                  'encrypted_content': 'gAAAAAB' + 'x' * 1500,
+                  'summary': [{'type': 'summary_text', 'text': 'Public continuation summary.'}],
+                  'content': [{'type': 'reasoning_text', 'text': 'must not leak'}]}
+        expanded = self.adapter.expand([opaque], 'deepseek-flash')
+        self.assertFalse(any(item.get('type') == 'reasoning' for item in expanded))
+        self.assertNotIn('must not leak', json.dumps(expanded))
+
     def test_local_retained_group_normalizes_after_decryption_without_mutation(self):
         original = fixture()
         cp = self.checkpoint(group())

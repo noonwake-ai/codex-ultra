@@ -144,6 +144,9 @@ TOOL_RESULT_TYPES = frozenset(('function_call_output', 'custom_tool_call_output'
 MEDIA_PART_TYPES = frozenset(('input_image', 'input_file', 'input_audio', 'input_video'))
 
 
+OPAQUE_REASONING_MIN = 256
+
+
 def provider_native_reasoning(item):
     """True when a reasoning item carries the routed model's own thinking text.
 
@@ -154,7 +157,12 @@ def provider_native_reasoning(item):
     and stays non-portable, so it keeps the summary-only conversion.
     """
     if not isinstance(item,dict): return False
-    if item.get('encrypted_content'): return False
+    blob=item.get('encrypted_content')
+    # OpenAI-style opaque state is a long base64 blob. Thinking-mode providers instead
+    # store a short surrogate id here (a UUID) while the real chain travels in
+    # content[].reasoning_text, so a bare truthiness test drops every such item.
+    if isinstance(blob,str) and len(blob)>=OPAQUE_REASONING_MIN: return False
+
     parts=item.get('content')
     if not isinstance(parts,list): return False
     return any(isinstance(part,dict) and part.get('type')=='reasoning_text' for part in parts)
