@@ -26,8 +26,10 @@ import base64
 import binascii
 import hashlib
 import io
+import json
 import os
 import threading
+import time
 from collections import OrderedDict
 
 # Pillow is optional: without it every media decision falls back to the original
@@ -116,44 +118,249 @@ _CACHE_LOCK = threading.Lock()
 _CACHE_HITS = 0
 _CACHE_MISSES = 0
 
+# The same result is also written next to the vision cache. The in-process map dies with
+# the process, so a retry after a restart used to re-encode every image (measured on a
+# 48-frame history: ~33 s of CPU on exactly the retry path that can least afford it),
+# while the vision transcription cache next to it already survived restarts.
+TRANSCODE_CACHE_VERSION = 1
+DISK_MAGIC = b'CXUTC1\n'
+DISK_MAX_BYTES = 256 * 1024 * 1024
+DISK_TTL_SECONDS = 7 * 24 * 3600
+DISK_PRUNE_EVERY = 64
+
+_DISK_DIR = None
+_DISK_MAX_BYTES = DISK_MAX_BYTES
+_DISK_TTL_SECONDS = DISK_TTL_SECONDS
+_DISK_HITS = 0
+_DISK_WRITES = 0
+_DISK_ERRORS = 0
+_DISK_WRITES_SINCE_PRUNE = 0
+
+
+def configure_cache(directory=None, max_bytes=None, ttl_seconds=None):
+    """Point the persistent transcode cache at a directory; None disables it.
+
+    Called once by the service at start-up. A directory that cannot be created is
+    remembered as disabled and never fails a request.
+    """
+    global _DISK_DIR, _DISK_MAX_BYTES, _DISK_TTL_SECONDS, _DISK_WRITES_SINCE_PRUNE
+    directory = str(directory) if directory else None
+    if directory:
+        try:
+            os.makedirs(os.path.join(directory, _disk_subdir()), exist_ok=True)
+        except OSError:
+            directory = None
+    with _CACHE_LOCK:
+        _DISK_DIR = directory
+        # Tests and operators walk these counters; keep them per configuration.
+        global _DISK_HITS, _DISK_WRITES, _DISK_ERRORS
+        _DISK_HITS = 0
+        _DISK_WRITES = 0
+        _DISK_ERRORS = 0
+        if max_bytes is not None:
+            _DISK_MAX_BYTES = max(0, int(max_bytes))
+        if ttl_seconds is not None:
+            _DISK_TTL_SECONDS = max(0, int(ttl_seconds))
+        _DISK_WRITES_SINCE_PRUNE = 0
+    if directory:
+        _disk_prune()
+
 
 def cache_info():
     with _CACHE_LOCK:
         return {'entries': len(_CACHE), 'source_bytes': _CACHE_BYTES,
-                'hits': _CACHE_HITS, 'misses': _CACHE_MISSES}
+                'hits': _CACHE_HITS, 'misses': _CACHE_MISSES,
+                'disk': bool(_DISK_DIR), 'disk_hits': _DISK_HITS,
+                'disk_writes': _DISK_WRITES, 'disk_errors': _DISK_ERRORS,
+                'disk_limit_bytes': _DISK_MAX_BYTES}
 
 
-def cache_clear():
-    global _CACHE_BYTES, _CACHE_HITS, _CACHE_MISSES
+def cache_clear(disk=False):
+    """Forget the in-process map. ``disk=True`` also drops the persisted entries."""
+    global _CACHE_BYTES, _CACHE_HITS, _CACHE_MISSES, _DISK_HITS, _DISK_WRITES, _DISK_ERRORS
     with _CACHE_LOCK:
         _CACHE.clear()
         _CACHE_BYTES = 0
         _CACHE_HITS = 0
         _CACHE_MISSES = 0
+        _DISK_HITS = 0
+        _DISK_WRITES = 0
+        _DISK_ERRORS = 0
+    if disk:
+        for path, _, _ in list(_disk_entries()):
+            _unlink(path)
+
+
+def _disk_subdir():
+    return 'v%d' % TRANSCODE_CACHE_VERSION
+
+
+def _disk_path(key, create=False):
+    if not _DISK_DIR or not key:
+        return None
+    base = os.path.join(_DISK_DIR, _disk_subdir())
+    if create:
+        try:
+            os.makedirs(base, exist_ok=True)
+        except OSError:
+            return None
+    return os.path.join(base, key + '.tc')
+
+
+def _disk_entries():
+    """Yield ``(path, size, mtime)`` for every persisted transcode."""
+    if not _DISK_DIR:
+        return
+    base = os.path.join(_DISK_DIR, _disk_subdir())
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return
+    for name in names:
+        if not name.endswith('.tc'):
+            continue
+        path = os.path.join(base, name)
+        try:
+            info = os.stat(path)
+        except OSError:
+            continue
+        yield path, info.st_size, info.st_mtime
+
+
+def _unlink(path):
+    global _DISK_ERRORS
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        with _CACHE_LOCK:
+            _DISK_ERRORS += 1
+
+
+def _disk_prune(now=None):
+    """Drop expired entries, then the oldest until the byte limit is met."""
+    now = time.time() if now is None else now
+    entries = sorted(_disk_entries(), key=lambda entry: entry[2])
+    if not entries:
+        return
+    kept = []
+    for path, size, mtime in entries:
+        if _DISK_TTL_SECONDS and now - mtime > _DISK_TTL_SECONDS:
+            _unlink(path)
+            continue
+        kept.append((path, size, mtime))
+    total = sum(size for _, size, _ in kept)
+    for path, size, _ in kept:
+        if total <= _DISK_MAX_BYTES:
+            break
+        _unlink(path)
+        total -= size
+
+
+def _disk_get(key):
+    """Return ``((url, decision, after), source_bytes)`` from disk, or None."""
+    global _DISK_HITS, _DISK_ERRORS
+    path = _disk_path(key)
+    if path is None:
+        return None
+    try:
+        with open(path, 'rb') as handle:
+            blob = handle.read()
+        if not blob.startswith(DISK_MAGIC):
+            raise ValueError('bad_magic')
+        header, separator, payload = blob[len(DISK_MAGIC):].partition(b'\n')
+        if not separator:
+            raise ValueError('missing_header')
+        meta = json.loads(header.decode('utf-8'))
+        if meta.get('v') != TRANSCODE_CACHE_VERSION or meta.get('key') != key:
+            return None
+        if meta.get('url_bytes') != len(payload):
+            raise ValueError('truncated')
+        value = (payload.decode('utf-8'), meta.get('decision'), int(meta.get('after') or 0))
+        source_bytes = int(meta.get('source_bytes') or 0)
+    except FileNotFoundError:
+        return None
+    except Exception:
+        # A corrupt entry must never fail a request; it is only recounted.
+        with _CACHE_LOCK:
+            _DISK_ERRORS += 1
+        return None
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass
+    with _CACHE_LOCK:
+        _DISK_HITS += 1
+    return value, source_bytes
+
+
+def _disk_put(key, value, source_bytes):
+    global _DISK_WRITES, _DISK_ERRORS, _DISK_WRITES_SINCE_PRUNE
+    path = _disk_path(key, create=True)
+    if path is None:
+        return
+    url, decision, after = value
+    encoded = url.encode('utf-8')
+    header = json.dumps({'v': TRANSCODE_CACHE_VERSION, 'key': key, 'decision': decision,
+                         'after': after, 'url_bytes': len(encoded),
+                         'source_bytes': int(source_bytes or 0)},
+                        separators=(',', ':')).encode('utf-8')
+    temporary = path + '.tmp'
+    try:
+        with open(temporary, 'wb') as handle:
+            handle.write(DISK_MAGIC + header + b'\n' + encoded)
+        os.replace(temporary, path)
+    except OSError:
+        with _CACHE_LOCK:
+            _DISK_ERRORS += 1
+        _unlink(temporary)
+        return
+    with _CACHE_LOCK:
+        _DISK_WRITES += 1
+        _DISK_WRITES_SINCE_PRUNE += 1
+        due = _DISK_WRITES_SINCE_PRUNE >= DISK_PRUNE_EVERY
+        if due:
+            _DISK_WRITES_SINCE_PRUNE = 0
+    if due:
+        _disk_prune()
 
 
 def _cache_get(key):
-    global _CACHE_HITS, _CACHE_MISSES
+    global _CACHE_HITS, _CACHE_MISSES, _CACHE_BYTES
     with _CACHE_LOCK:
         entry = _CACHE.get(key)
-        if entry is None:
+        if entry is not None:
+            _CACHE_HITS += 1
+            _CACHE.move_to_end(key)
+            return entry[0]
+    found = _disk_get(key)
+    if found is None:
+        with _CACHE_LOCK:
             _CACHE_MISSES += 1
-            return None
+        return None
+    value, source_bytes = found
+    with _CACHE_LOCK:
+        if key not in _CACHE:
+            _CACHE[key] = (value, source_bytes)
+            _CACHE_BYTES += source_bytes
+            while _CACHE and (len(_CACHE) > CACHE_MAX_ENTRIES or _CACHE_BYTES > CACHE_MAX_BYTES):
+                _, (_, freed) = _CACHE.popitem(last=False)
+                _CACHE_BYTES -= freed
         _CACHE_HITS += 1
-        _CACHE.move_to_end(key)
-        return entry[0]
+    return value
 
 
 def _cache_put(key, value, source_bytes):
     global _CACHE_BYTES
     with _CACHE_LOCK:
-        if key in _CACHE:
-            return
-        _CACHE[key] = (value, source_bytes)
-        _CACHE_BYTES += source_bytes
-        while _CACHE and (len(_CACHE) > CACHE_MAX_ENTRIES or _CACHE_BYTES > CACHE_MAX_BYTES):
-            _, (_, freed) = _CACHE.popitem(last=False)
-            _CACHE_BYTES -= freed
+        if key not in _CACHE:
+            _CACHE[key] = (value, source_bytes)
+            _CACHE_BYTES += source_bytes
+            while _CACHE and (len(_CACHE) > CACHE_MAX_ENTRIES or _CACHE_BYTES > CACHE_MAX_BYTES):
+                _, (_, freed) = _CACHE.popitem(last=False)
+                _CACHE_BYTES -= freed
+    _disk_put(key, value, source_bytes)
 
 
 def webp_enabled():

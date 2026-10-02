@@ -54,6 +54,15 @@ curl -s http://127.0.0.1:15731/health
 `media_transcode_pruned`. A given image is paid for once: the cache key is the image's
 SHA-256 plus the contract namespace (model, JSON mode, prompt schema).
 
+## A restart no longer re-encodes anything
+
+Transcode results are also written to `transcode-cache/` beside the config file (a *sibling* of
+`media-cache/`, never inside it, so the originals store keeps owning every file under its own
+root). After a restart or a SIGTERM, a retry hits the cached results instead of re-encoding the
+whole history — measured on 2026-10-02: re-encoding 48 frames costs ~33 s of CPU, on exactly the
+retry path that can least afford it. Entries carry a versioned envelope, writes are atomic, and a
+corrupt entry only counts as an error without failing the request.
+
 ## The cache is bounded
 
 Transcription index entries expire after 30 days and the index keeps at most 20 000 entries.

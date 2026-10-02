@@ -501,6 +501,23 @@ class Adapter:
             originals_max_bytes=int(cfg.get('media_cache_originals_max_mb',512))*1024*1024,
             originals_min_age_seconds=int(cfg.get('media_cache_originals_min_age_hours',24))*3600)
 
+        # The transcode result cache survives a restart: the in-process map alone meant
+        # every retry after a restart re-encoded all images in the history (measured:
+        # ~33 s of CPU on a 48-frame history). It sits beside the media cache rather than
+        # inside it, so the originals store keeps owning every file under its own root and
+        # its pruning can never see a foreign subtree. Disabled unless the deployment
+        # names a directory, so a hand-built adapter never writes into a real cache.
+        transcode_dir=cfg.get('transcode_cache_dir')
+        if not transcode_dir:
+            media_root=cfg.get('media_store_dir') or cfg.get('media_cache_dir')
+            if media_root:
+                transcode_dir=os.path.join(os.path.dirname(str(media_root)),'transcode-cache')
+        if transcode_dir:
+            media_transcode.configure_cache(
+                transcode_dir,
+                max_bytes=int(cfg.get('media_transcode_cache_max_mb',256))*1024*1024,
+                ttl_seconds=int(cfg.get('media_transcode_cache_ttl_days',7))*24*3600)
+
 
     def count(self, key, amount=1):
         with self.lock: self.stats[key] += amount
@@ -1339,6 +1356,7 @@ def main():
     a=p.parse_args();cfg=json.loads(Path(a.config).read_text())
     cfg.setdefault('native_cache_dir',str(Path(a.config).resolve().parent/'native-checkpoint-cache'))
     cfg.setdefault('media_cache_dir',str(Path(a.config).resolve().parent/'media-cache'))
+    cfg.setdefault('transcode_cache_dir',str(Path(a.config).resolve().parent/'transcode-cache'))
     service=cfg.get('keychain_service') or SERVICE;account=cfg.get('keychain_account') or ACCOUNT
     try:
         key=keychain_key(service,account,create=a.init_key)

@@ -61,9 +61,17 @@ curl -s http://127.0.0.1:15731/health
 | `media_budget_no_original` | 因为拿不到「模型当时看到的原图」而**拒绝写盘、保留图片**的次数，正常应长期为 0 |
 | `media_budget_deadline_hits` | 撞到墙钟上限（默认 120 秒）的次数 |
 | `media_transcode_pruned` | 缓存清理计数（索引条数 / 原图个数 / 释放字节） |
+| `media_transcode_cache` | 转码结果缓存：进程内 `entries/hits/misses` 与落盘 `disk/disk_hits/disk_writes/disk_errors/disk_limit_bytes` |
 
 一张图只付一次：缓存键是图片内容的 SHA-256 + 契约命名空间（模型、是否 JSON 模式、提示词 schema），
 同一张图跨会话复用；换成另一个视觉模型才会重新付费。
+
+## 重启也不重转：转码缓存落盘
+
+转码结果同时写进配置文件所在目录的 `transcode-cache/`（放在 `media-cache/` **旁边**，不是里面，
+所以原图缓存的配额与清理看不到它）。适配器重启或被 SIGTERM 后，重试会直接命中同一批图的
+转码结果，而不是把整个历史重新编码一遍——2026-10-02 的带图历史测试实测：48 张图的重转要
+约 33 秒 CPU，正好压在重试路径上。键与信封带版本号，写入是原子替换，损坏条目只计数不影响请求。
 
 ## 缓存不会无限长大
 
@@ -73,6 +81,9 @@ curl -s http://127.0.0.1:15731/health
   但**不删 `media_cache_originals_min_age_hours`（默认 24 小时）以内的文件**——正在被使用的
   那次会话必须还能读回它的原图。
 - 只有本服务自己写下的文件参与计数和清理；索引、备份、手工放进来的文件既不占额度也不会被删。
+- 转码缓存超过 `media_transcode_cache_max_mb`（默认 256 MiB）时从最老的文件开始删，超过
+  `media_transcode_cache_ttl_days`（默认 7 天）的条目在下次写入时清掉；改转码逻辑时把
+  `TRANSCODE_CACHE_VERSION` 加一即可全量失效。
 - 想永不删除：把这两个上限写 0。
 
 ## 已知边界
