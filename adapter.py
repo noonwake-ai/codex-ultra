@@ -10,6 +10,8 @@ import requests
 import urllib3
 import zstandard as zstd
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import media_budget
+import media_transcode
 import tool_image_bridge
 from direct_handoff import Strategy
 from native_checkpoint import NativeCheckpointCache
@@ -261,6 +263,27 @@ def resolve_media_models(cfg):
 
 
 class Adapter:
+    # Media byte layer defaults. __init__ resolves them from config; the class
+    # attributes keep hand-constructed instances (as the protocol tests build) valid
+    # and behave like an install that left the two paid layers off.
+    media_transcode_enabled=True
+    media_webp=True
+    media_budget_enabled=False
+    media_budget_bytes=4*1024*1024
+    media_keep_bytes=2*1024*1024
+    media_max_image_bytes=2*1024*1024
+    media_min_replace_bytes=512
+    media_protect_recent_items=1
+    media_budget_deadline_seconds=120.0
+    media_transcribe_workers=4
+    media_prewarm_enabled=False
+    media_prewarm_workers=2
+    media_prewarm_max_per_request=6
+    media_prewarm_min_bytes=16384
+    media_vision_model='gemini-3.8-flash'
+    media_vision_effort='minimal'
+    media_vision_json=True
+    media_vision_max_tokens=1600
     # Outbound body encoding. __init__ resolves it from config; the class attributes keep
     # hand-constructed instances (as the protocol tests build) valid.
     upstream_encoding=DEFAULT_UPSTREAM_ENCODING
@@ -281,7 +304,23 @@ class Adapter:
         self.stats = {'requests':0,'compactions':0,'errors':0,'native_exports':0,'native_cache_hits':0,
                       'footprint_observations':0,'footprint_errors':0,'upstream_zstd':0,
                       'upstream_zstd_bytes':0,'upstream_retries':0,'upstream_retries_ok':0,
-                      'upstream_zstd_downgraded':0,'started_at':int(time.time())}
+                      'upstream_zstd_downgraded':0,'started_at':int(time.time()),
+                      # Media byte layer. Present from startup so /health answers
+                      # "is this happening at all?" without waiting for a first event.
+                      'media_images_seen':0,'media_images_replaced':0,'media_bytes_before':0,
+                      'media_bytes_after':0,'media_transcode_errors':0,
+                      'media_transcode_fidelity_errors':0,
+                      'media_last_decisions':{},'media_last_skips':{},
+                      'media_transcode_pruned':{'index_pruned':0,'originals_pruned':0,
+                                                'originals_bytes_freed':0},
+                      'media_transcribe_calls':0,'media_transcribe_empty':0,
+                      'media_transcribe_invalid':0,
+                      'media_budget_evaluations':0,'media_budget_runs':0,
+                      'media_budget_replaced':0,'media_budget_cache_hits':0,
+                      'media_budget_over_budget':0,'media_budget_failures':0,
+                      'media_budget_no_original':0,'media_budget_deadline_hits':0,
+                      'media_prewarm_runs':0,'media_prewarm_scheduled':0,
+                      'media_last_budget':None,'media_last_budget_route':None}
         self.strategy = Strategy()
         u = urlsplit(cfg['upstream'])
         if u.scheme != 'https' or u.username or u.password or u.hostname in ('localhost','127.0.0.1'):
@@ -300,6 +339,53 @@ class Adapter:
         self.zstd_probe_at=0
         self.zstd_cooldown=ZSTD_PROBE_COOLDOWN
         self.native_cache=NativeCheckpointCache(self)
+        # ---------------------------------------------------------------- media bytes
+        # Image bytes are decoupled from token cost: a 4K frame is a few thousand
+        # tokens but megabytes of payload, and a video-editing conversation can put
+        # 20-40 MB on the wire. Three layers, in order:
+        #
+        #   transcode   re-encode only (never resize), free, on by default;
+        #   budget      replace the oldest frames with a text description of them,
+        #               one paid vision call per image, once, cached;
+        #   prewarm     the same call ahead of time so a later request never waits.
+        #
+        # The two paid layers are OFF unless the operator turns them on: they spend
+        # the user's own gateway credits, and nobody should discover that by looking
+        # at a bill. See docs/MEDIA.md.
+        self.media_transcode_enabled=bool(cfg.get('media_transcode',True))
+        self.media_webp=bool(cfg.get('media_webp',True))
+        self.media_budget_enabled=bool(cfg.get('media_budget_enabled',False))
+        self.media_budget_bytes=int(cfg.get('media_budget_bytes',4*1024*1024))
+        self.media_keep_bytes=int(cfg.get('media_keep_bytes',2*1024*1024))
+        # Only a provider-safety threshold: a single image bigger than this is a
+        # candidate for replacement even when the request is inside its budget.
+        self.media_max_image_bytes=int(cfg.get('media_max_image_bytes',2*1024*1024))
+        self.media_min_replace_bytes=int(cfg.get('media_min_replace_bytes',512))
+        self.media_protect_recent_items=int(cfg.get('media_protect_recent_items',1))
+        self.media_budget_deadline_seconds=float(cfg.get('media_budget_deadline_seconds',120))
+        self.media_transcribe_workers=int(cfg.get('media_transcribe_workers',4))
+        self.media_prewarm_enabled=bool(cfg.get('media_prewarm_enabled',False))
+        self.media_prewarm_workers=int(cfg.get('media_prewarm_workers',2))
+        self.media_prewarm_max_per_request=int(cfg.get('media_prewarm_max_per_request',6))
+        self.media_prewarm_min_bytes=int(cfg.get('media_prewarm_min_bytes',16384))
+        self.media_vision_model=cfg.get('media_vision_model','gemini-3.8-flash')
+        self.media_vision_effort=cfg.get('media_vision_effort','minimal')
+        self.media_vision_json=bool(cfg.get('media_vision_json',True))
+        self.media_vision_max_tokens=int(cfg.get('media_vision_max_tokens',1600))
+        # Like the native checkpoint cache, the media cache sits beside config.json
+        # once main() has resolved it; a hand-built instance gets a home-directory
+        # fallback so the layer is harmless even with no config at all.
+        store_dir=(cfg.get('media_store_dir') or cfg.get('media_cache_dir')
+                   or str(Path(os.path.expanduser('~/.codex-ultra/media-cache'))))
+        self.media_store=media_budget.MediaStore(
+            store_dir, model=self.media_vision_model, json_mode=self.media_vision_json,
+            namespace=media_budget.transcription_namespace(self.media_vision_model,
+                                                          self.media_vision_json),
+            index_ttl_seconds=int(cfg.get('media_cache_index_ttl_days',30))*24*3600,
+            index_max_entries=int(cfg.get('media_cache_index_max_entries',20000)),
+            originals_max_bytes=int(cfg.get('media_cache_originals_max_mb',512))*1024*1024,
+            originals_min_age_seconds=int(cfg.get('media_cache_originals_min_age_hours',24))*3600)
+
 
     def count(self, key, amount=1):
         with self.lock: self.stats[key] += amount
@@ -494,6 +580,209 @@ class Adapter:
             else: out.append(item)
         return out
 
+    # ------------------------------------------------------------------ media bytes
+    def count_media(self, key, amount=1):
+        with self.lock:
+            self.stats[key]=self.stats.get(key,0)+amount
+
+    def note_media_failure(self, reason):
+        """Record why a transcription was abandoned (fixed enum, never content)."""
+        with self.lock:
+            detail=self.stats.setdefault('media_budget_failures_detail',{})
+            key=str(reason)[:40]
+            detail[key]=detail.get(key,0)+1
+            self.stats['media_last_media_failure']={'reason':key,'at':int(time.time())}
+
+    @staticmethod
+    def vision_answer(response):
+        """Read the transcription out of a Responses body, or say why there is none.
+
+        An incomplete answer is not an answer, however plausible its partial text
+        looks, and only ``output_text`` parts of message items count: reasoning
+        items carry text too, and concatenating those into a transcription writes
+        the model's own monologue into history.
+        """
+        content_type=str(getattr(response,'headers',{}).get('Content-Type',''))
+        if 'text/event-stream' in content_type:
+            body=None
+            for line in response.text.splitlines():
+                if not line.startswith('data: '):continue
+                try:event=json.loads(line[6:])
+                except ValueError:continue
+                if event.get('type')=='response.completed':body=event.get('response')
+            data=body or {}
+        else:
+            try:data=response.json()
+            except ValueError:data={}
+        if data.get('incomplete_details'):
+            return '', 'incomplete'
+        if str(data.get('status','completed')) not in ('completed',):
+            return '', 'incomplete'
+        chunks=[]
+        for item in data.get('output') or []:
+            if not isinstance(item,dict) or item.get('type') not in (None,'message'):continue
+            for part in item.get('content') or []:
+                if isinstance(part,dict) and part.get('type')=='output_text' \
+                        and isinstance(part.get('text'),str):chunks.append(part['text'])
+        if not chunks and isinstance(data.get('output_text'),str):chunks.append(data['output_text'])
+        text='\n'.join(chunks)
+        return text, (None if text.strip() else 'empty')
+
+    def transcode_media(self, items):
+        """Shrink history-carrying image bytes before the request leaves the machine.
+
+        Returns ``(items, originals, complete)``. ``originals`` maps the hash of an
+        image payload in the returned items to the ``(bytes, mime)`` it was derived
+        from, for this request only, so a later layer can keep the frame the model
+        actually saw instead of the smaller copy this step produced. ``complete``
+        says that mapping covers every image, which is what lets the budget layer
+        refuse to write a file whose provenance was lost.
+
+        Any failure here leaves the request exactly as it was: this runs inside the
+        forwarding path of a service someone else depends on.
+        """
+        originals={}
+        complete=False
+        try:
+            active=self.media_transcode_enabled and media_transcode.enabled()
+            items,media_stats,originals=media_transcode.transcode_items(
+                items,force=active,webp=self.media_webp)
+            complete=bool(media_stats.get('originals_complete'))
+            if media_stats['images']:
+                with self.lock:
+                    self.stats['media_images_seen']=self.stats.get('media_images_seen',0)+media_stats['images']
+                    self.stats['media_images_replaced']=self.stats.get('media_images_replaced',0)+media_stats['replaced']
+                    self.stats['media_bytes_before']=self.stats.get('media_bytes_before',0)+media_stats['bytes_before']
+                    self.stats['media_bytes_after']=self.stats.get('media_bytes_after',0)+media_stats['bytes_after']
+                    self.stats['media_last_decisions']=media_stats['decisions']
+                    self.stats['media_last_skips']=media_stats['skipped']
+                    if media_stats['fidelity_errors']:
+                        self.stats['media_transcode_fidelity_errors']=\
+                            self.stats.get('media_transcode_fidelity_errors',0)+media_stats['fidelity_errors']
+                    self.stats['media_transcode_pruned']=dict(
+                        getattr(self.media_store,'prune_stats',{}) or {})
+                    self.stats['media_transcode_cache']=media_transcode.cache_info()
+            return items,originals,complete
+        except Exception:
+            with self.lock:
+                self.stats['media_transcode_errors']=self.stats.get('media_transcode_errors',0)+1
+            return items,{},False
+
+    def transcribe_image(self, raw, mime, digest):
+        """One cheap vision call per image, cached on disk by content hash.
+
+        This runs inside the forwarding path, so it must be short and must fail
+        loudly enough that the caller keeps the original image instead of writing a
+        placeholder into history.
+        """
+        payload={'model':self.media_vision_model,
+                 'input':[{'role':'user','content':[
+                     {'type':'input_text','text':media_budget.PROMPT},
+                     {'type':'input_image','detail':'high',
+                      'image_url':'data:%s;base64,%s'%(mime,base64.b64encode(raw).decode())}]}],
+                 'stream':False,'max_output_tokens':self.media_vision_max_tokens}
+        if self.media_vision_json:
+            payload['response_format']={'type':'json_object'}
+        if self.media_vision_effort and self.media_vision_effort!='default':
+            payload['reasoning']={'effort':self.media_vision_effort}
+        thinking=str(self.cfg.get('media_vision_thinking','') or '').strip().lower()
+        if thinking in ('enabled','disabled'):
+            payload['thinking']={'type':thinking}
+        headers={'Authorization':'Bearer '+self.credential(),'Content-Type':'application/json',
+                 'X-Client-Request-Id':str(uuid.uuid4())}
+        self.count('media_transcribe_calls')
+        # A thinking model can spend its whole output budget on reasoning and come
+        # back with no text, so one retry with a larger budget is allowed. Any other
+        # outcome is reported verbatim in /health and the caller keeps the image.
+        for attempt,budget in enumerate((payload['max_output_tokens'],payload['max_output_tokens']*2)):
+            payload['max_output_tokens']=budget
+            response=self.transport.post(self.cfg['upstream'].rstrip('/')+'/responses',
+                                        json=payload,headers=headers,timeout=(10,180))
+            if response.status_code!=200:
+                self.note_media_failure('vision_status_%d'%response.status_code)
+                raise RuntimeError('vision_status_%d'%response.status_code)
+            text,problem=self.vision_answer(response)
+            if text.strip():
+                clean=media_budget.normalise_transcription(text,self.media_vision_json)
+                if clean is not None:
+                    return clean
+                self.count('media_transcribe_invalid')
+            else:
+                self.count('media_transcribe_empty')
+            if problem and problem!='empty':
+                self.note_media_failure('vision_'+problem)
+        self.note_media_failure('vision_empty')
+        raise RuntimeError('vision_empty')
+
+    def prewarm_media(self, items):
+        """Start transcriptions in the background; never blocks the request."""
+        if not (self.media_prewarm_enabled and self.media_budget_enabled):
+            return
+        try:
+            jobs=media_budget.prewarm_jobs(items,min_bytes=self.media_prewarm_min_bytes,
+                                           limit=self.media_prewarm_max_per_request,
+                                           skip_newest=0,store=self.media_store)
+            if not jobs:
+                return
+            started=media_budget.schedule_transcriptions(jobs,self.transcribe_image,
+                                                        workers=self.media_prewarm_workers,
+                                                        store=self.media_store,
+                                                        purpose='prewarm')
+            with self.lock:
+                self.stats['media_prewarm_runs']=self.stats.get('media_prewarm_runs',0)+1
+                self.stats['media_prewarm_scheduled']=self.stats.get('media_prewarm_scheduled',0)+started
+        except Exception as exc:
+            self.note_media_failure('prewarm_'+type(exc).__name__)
+
+    def apply_media_budget(self, items, originals=None, originals_complete=False):
+        """Replace the oldest images with text when the bytes still do not fit.
+
+        Failures leave the request exactly as it was: an over-budget request is
+        better than one that silently lost its pixels.
+        """
+        if not self.media_budget_enabled:
+            return items
+        try:
+            items,stats=media_budget.apply_budget(items,self.media_store,self.transcribe_image,
+                                                  self.media_budget_bytes,self.media_keep_bytes,
+                                                  max_image_bytes=self.media_max_image_bytes,
+                                                  workers=self.media_transcribe_workers,
+                                                  min_replace_bytes=self.media_min_replace_bytes,
+                                                  protect_items=self.media_protect_recent_items,
+                                                  deadline_seconds=self.media_budget_deadline_seconds,
+                                                  originals=originals,
+                                                  originals_required=originals_complete)
+        except Exception as exc:
+            self.note_media_failure('budget_'+type(exc).__name__)
+            with self.lock:
+                self.stats['media_budget_failures']=self.stats.get('media_budget_failures',0)+1
+            return items
+        self.publish_budget(stats,'request')
+        return items
+
+    def publish_budget(self, stats, route):
+        """Record one budget evaluation where /health can see it.
+
+        Publish the last evaluation even when nothing was replaced: an
+        under-budget pass that is invisible is indistinguishable from a budget that
+        never ran.
+        """
+        with self.lock:
+            self.stats['media_last_budget']=stats
+            self.stats['media_last_budget_route']=route
+            self.stats['media_budget_evaluations']=self.stats.get('media_budget_evaluations',0)+1
+            if (stats.get('over_budget') or stats.get('replaced')
+                    or stats.get('kept_no_original') or stats.get('over_image_cap')):
+                for key,value in (('media_budget_runs',1),
+                                  ('media_budget_replaced',stats['replaced']),
+                                  ('media_budget_cache_hits',stats['cache_hits']),
+                                  ('media_budget_over_budget',1 if stats['over_budget'] else 0),
+                                  ('media_budget_failures',stats['transcribe_failures']),
+                                  ('media_budget_no_original',stats.get('kept_no_original',0)),
+                                  ('media_budget_deadline_hits',stats.get('deadline_hit',0))):
+                    self.stats[key]=self.stats.get(key,0)+value
+                self.stats['media_transcribe_workers']=self.media_transcribe_workers
+
     def prepare_forward(self, body, headers=None):
         """Prepare normal Responses input without mutating its original history.
 
@@ -515,6 +804,13 @@ class Adapter:
         else:
             prepared=body
             expanded=self.expand(items,model,headers=headers)
+        # The byte layer runs after every protocol adaptation and before the request
+        # leaves the machine: the two layers address different costs (tokens vs
+        # bytes) and neither may change what the model is *asked*.
+        expanded,originals,originals_complete=self.transcode_media(expanded)
+        expanded=self.apply_media_budget(expanded,originals=originals,
+                                         originals_complete=originals_complete)
+        self.prewarm_media(expanded)
         result={**prepared,'input':expanded}
         self.observe_request('forward',body,items,expanded)
         return result
@@ -903,6 +1199,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--config',required=True);p.add_argument('--init-key',action='store_true')
     a=p.parse_args();cfg=json.loads(Path(a.config).read_text())
     cfg.setdefault('native_cache_dir',str(Path(a.config).resolve().parent/'native-checkpoint-cache'))
+    cfg.setdefault('media_cache_dir',str(Path(a.config).resolve().parent/'media-cache'))
     service=cfg.get('keychain_service') or SERVICE;account=cfg.get('keychain_account') or ACCOUNT
     try:
         key=keychain_key(service,account,create=a.init_key)

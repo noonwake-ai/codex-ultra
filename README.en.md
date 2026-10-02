@@ -12,7 +12,7 @@ Kimi and GLM into Codex and use them like native models.
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-218%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-228%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -52,6 +52,20 @@ What shows up in the picker is whatever your gateway offers:
 <img src="docs/assets/model-picker.en.png" alt="Switching between DeepSeek, Gemini, Claude, Grok, MiniMax, Kimi and GLM in the Codex model picker" width="880">
 
 ---
+
+## Images in long sessions
+
+Video work, image dumps and screenshot debugging push a request past 20-40 MB quickly, and
+an image's *size* is not its *token cost*, so bytes get their own layer:
+
+- **Transcode (on, free)**: re-encodes only -- resolution, cropping and `detail` never move,
+  and a lossy candidate has to pass two fidelity gates or the original bytes are kept.
+- **Budget transcription / pre-warm (off, paid per image)**: the **oldest frames only** become a
+  text description plus a path to the original, while the newest turn keeps real pixels. These
+  layers call your gateway and spend your credits, so they stay off until you ask.
+
+An image is paid for once (cached by content hash), the cache is bounded, and `/health` reports
+the whole picture. See [the image byte layer](docs/MEDIA.en.md).
 
 ## Where it sits
 
@@ -115,7 +129,7 @@ Full details in [install](docs/INSTALL.md).
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-218 offline tests, no paid requests. Covers compaction handoff, encrypted
+228 offline tests, no paid requests. Covers compaction handoff, encrypted
 checkpoints across restarts, tamper refusal, image pairing, gateway failures,
 catalog policy, endpoint rewrite and rollback. CI runs 3.11 / 3.12 / 3.13.
 

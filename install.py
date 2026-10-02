@@ -39,6 +39,9 @@ DEFAULT_LABEL = "ai.codexultra.local-adapter"
 SOURCES = (
     "adapter.py", "tool_image_bridge.py", "model_presets.py", "build_catalog.py",
     "direct_handoff.py", "native_checkpoint.py", "configure.py", "requirements.txt",
+    # Media byte layer: the adapter imports both at import time, so a copy list that
+    # trails the sources produces a service that cannot start.
+    "media_transcode.py", "media_budget.py",
 )
 
 
@@ -251,6 +254,32 @@ def main(argv=None):
             # that cannot decode zstd.
             "upstream_encoding": "zstd",
             "media_models": read_media_models(args.catalog),
+            # Byte layer. Transcoding only re-encodes (never resizes) and costs
+            # nothing, so it is on. The two layers that call a vision model spend the
+            # user's own gateway credits, so they stay off until asked for:
+            # docs/MEDIA.md has the one-line switch and what it buys.
+            "media_transcode": True,
+            "media_webp": True,
+            "media_budget_enabled": False,
+            "media_budget_bytes": 4194304,
+            "media_keep_bytes": 2097152,
+            "media_max_image_bytes": 2097152,
+            "media_min_replace_bytes": 512,
+            "media_protect_recent_items": 1,
+            "media_budget_deadline_seconds": 120,
+            "media_transcribe_workers": 4,
+            "media_prewarm_enabled": False,
+            "media_prewarm_workers": 2,
+            "media_prewarm_max_per_request": 6,
+            "media_prewarm_min_bytes": 16384,
+            "media_vision_model": args.compactor_model,
+            "media_vision_effort": "minimal",
+            "media_vision_json": True,
+            "media_vision_max_tokens": 1600,
+            "media_cache_index_ttl_days": 30,
+            "media_cache_index_max_entries": 20000,
+            "media_cache_originals_max_mb": 512,
+            "media_cache_originals_min_age_hours": 24,
             "catalog": str(pathlib.Path(args.catalog).expanduser().resolve())
                        if args.catalog else None,
             "cc_db": args.cc_switch_db,

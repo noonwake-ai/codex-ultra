@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-218%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-228%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -51,6 +51,19 @@
 <img src="docs/assets/model-picker.zh.png" alt="在 Codex 的模型选择器里切换 DeepSeek、Gemini、Claude、Grok、MiniMax、Kimi、GLM" width="880">
 
 ---
+
+## 图片与长会话：字节也要管
+
+剪视频、传素材、截图调试这类场景，一个会话很容易把请求体堆到 20–40 MB。图片的「体积」和
+「token」是两回事，所以这一层单独管字节：
+
+- **转码（默认开，不花钱）**：只换更小的编码，分辨率、裁剪、`detail` 全都不动；有损候选要过两道
+  保真闸门，过不了就退回无损或原图。
+- **预算转写 / 后台预热（默认关，按图付费）**：超预算时把**最老的几张**图换成文字描述 + 原图路径，
+  最新的图永远保留像素。这两层会调用你自己的网关、花你自己的额度，所以默认不替你做决定。
+
+一张图只付一次（按内容哈希缓存），缓存有上限，`/health` 上有全套计数。
+完整口径、开关方式、缓存策略见 [图片字节层](docs/MEDIA.md)。
 
 ## 它站在哪
 
@@ -112,7 +125,7 @@ python3 install.py --upstream https://你的网关/v1 \
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-218 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
+228 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
 网关失败、目录策略、端点改写与回滚。CI 跑 Python 3.11 / 3.12 / 3.13。
 
 ---

@@ -346,10 +346,17 @@ class InstallerDefaultTests(unittest.TestCase):
         self.assertIn('"upstream_encoding"', source.split("config.write_text")[1])
 
     def test_the_component_has_no_other_upload_path(self):
-        """Every body this service sends upstream must go through the two checked paths."""
+        """Every body this service sends upstream must go through a budgeted session.
+
+        Two call sites: the forwarding path, and the media layer's vision call (which
+        uploads one image and goes through the same session, so it inherits the upload
+        budget). A bare `requests.post()` would silently lose that budget, which is
+        what this test exists to catch.
+        """
         source = (__import__('pathlib').Path(__file__).resolve().parent / 'adapter.py').read_text()
-        self.assertEqual(source.count("transport.post("), 1)
+        self.assertEqual(source.count("transport.post("), 2)
         self.assertEqual(source.count("transport.request("), 1)
+        self.assertNotIn("requests.post(", source)
 
 
 class EncodingSelectionTests(unittest.TestCase):
