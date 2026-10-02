@@ -281,8 +281,25 @@ class ChunkTests(unittest.TestCase):
         Strategy().compact(history, parallel, {**self.options, "map_workers": 4})
         parallel_seconds = time.monotonic() - started
 
-        self.assertEqual(len(serial.calls), len(parallel.calls))
+        # The split is chosen for the pool it will run on: one worker keeps the
+        # minimum number of paid calls, a wider pool may spend a few extra calls to
+        # fill its waves instead of queueing a second round.
+        self.assertGreaterEqual(len(parallel.calls), len(serial.calls))
         self.assertLess(parallel_seconds, serial_seconds * 0.75)
+
+    def test_single_worker_keeps_the_minimum_call_count(self):
+        # Nothing to gain from more chunks when they cannot overlap, so a pinned
+        # pool must not turn into more paid calls than the budget requires.
+        history = [{"role": "user", "content": "item%d " % index + "evidence " * 200}
+                   for index in range(12)]
+        serial = Client()
+        Strategy().compact(history, serial, {**self.options, "map_workers": 1})
+        parallel = Client()
+        Strategy().compact(history, parallel, {**self.options, "map_workers": 4})
+        self.assertLessEqual(len(serial.calls), len(parallel.calls))
+        self.assertEqual([label for _, label in serial.calls if "-map" in label],
+                         sorted(label for _, label in serial.calls if "-map" in label))
+        self.assertLessEqual(len([1 for _, label in serial.calls if "-map" in label]), 4)
 
     def test_strict_response_validation(self):
         invalid = [
