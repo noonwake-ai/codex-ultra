@@ -158,13 +158,47 @@ class ForwardedWireTests(unittest.TestCase):
         self.assertNotIn('agent_message', [i.get('type') for i in forwarded['input']])
         self.assertIn('子代理的结论', forwarded['input'][0]['content'][0]['text'])
 
-    def test_opaque_team_message_keeps_its_wire_shape(self):
+    def test_opaque_team_message_keeps_its_wire_shape_on_a_native_route(self):
+        adapter, transport, server = make(responses=[FakeResponse(200, SSE_200)])
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        response = post(server, {'model': 'gpt-6-sol', 'stream': False,
+                                 'input': [agent_message(FERNET), user('继续')]})
+        self.assertEqual(response.status_code, 200)
+        forwarded = body_of(transport.calls[0])
+        self.assertEqual(forwarded['input'][0]['type'], 'agent_message')
+        self.assertEqual(forwarded['input'][0]['content'][1]['encrypted_content'], FERNET)
+        self.assertEqual(adapter.stats.get('agent_messages_left_opaque'), 1)
+        self.assertEqual(adapter.stats.get('agent_messages_notice_opaque'), 0)
+
+    def test_sealed_body_becomes_a_readable_notice_on_a_third_party_route(self):
+        """A sealed body cannot be read off-route, and dropping it silently is worse.
+
+        The receiver keeps the header and is told the payload exists; pasting the
+        ciphertext in would add bytes without meaning, and sending nothing produced
+        agents that answered they had been given no task at all.
+        """
         response = post(self.server, {'model': 'deepseek-flash', 'stream': False,
                                       'input': [agent_message(FERNET), user('继续')]})
         self.assertEqual(response.status_code, 200)
         forwarded = self.forwarded()
-        self.assertEqual(forwarded['input'][0]['type'], 'agent_message')
-        self.assertEqual(forwarded['input'][0]['content'][1]['encrypted_content'], FERNET)
+        self.assertNotIn('agent_message', [i.get('type') for i in forwarded['input']])
+        delivered = forwarded['input'][0]
+        self.assertEqual(delivered['role'], 'user')
+        text = delivered['content'][0]['text']
+        self.assertIn('NEW_TASK', text)
+        self.assertIn('/root/probe', text)
+        self.assertIn('cannot read native encrypted state', text)
+        self.assertNotIn(FERNET, text)
+        self.assertEqual(self.adapter.stats.get('agent_messages_notice_opaque'), 1)
+        self.assertEqual(self.adapter.stats.get('agent_messages_left_opaque'), 0)
+
+    def test_notice_route_still_inlines_readable_bodies(self):
+        post(self.server, {'model': 'deepseek-flash', 'stream': False,
+                           'input': [agent_message('正文'), inline_answer('结论'),
+                                     agent_message(FERNET)]})
+        self.assertEqual(self.adapter.stats.get('agent_messages_inlined'), 2)
+        self.assertEqual(self.adapter.stats.get('agent_messages_notice_opaque'), 1)
 
     def test_delivery_is_counted(self):
         post(self.server, {'model': 'deepseek-flash', 'stream': False,

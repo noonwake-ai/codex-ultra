@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-268%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-270%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -125,7 +125,7 @@ python3 install.py --upstream https://你的网关/v1 \
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-268 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
+270 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
 网关失败、目录策略、端点改写与回滚。CI 跑 Python 3.11 / 3.12 / 3.13。
 
 ---
@@ -145,10 +145,15 @@ python3 -m unittest discover -s . -p 'test_*.py'
 
 <details><summary><b>换第三方模型后，Sub Agent 派活收不到任务？</b></summary>
 
-已经修了。团队消息的正文放在一个叫 `encrypted_content` 的分量里：GPT 原生路由能解码它，
-第三方路由只认纯文本，于是子代理只看到 `Payload:` 这行标题，回你一句"没有具体任务"。
-现在适配层在转发前把可读正文内联成普通文本（顺序不变），真正不透明的密文保持原样。
-回归见 `test_agent_messages.py`。
+已经修了，分两种情况。团队消息的正文放在一个叫 `encrypted_content` 的分量里：GPT 原生路由
+能解码它，第三方路由只认纯文本，于是子代理只看到 `Payload:` 这行标题，回你一句"没有具体任务"。
+
+- 可读正文：转发前内联成普通文本，顺序不变，任何模型都读得到。
+- 密封正文（只在 GPT 路由产生的原生密文）：发往原生路由时原样保留；发往第三方路由时，
+  适配层保留可读标题，并把正文换成一句明确说明——"这个载荷在本路由读不出来，请让发送方
+  用纯文本重发"。实测本机 686 条密封消息的正文都为空标题形式，静默丢掉才是真正的丢件。
+
+回归见 `test_agent_messages.py`（26 项）。
 </details>
 
 <details><summary><b>为什么默认用满上下文窗口？</b></summary>

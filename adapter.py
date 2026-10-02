@@ -156,6 +156,16 @@ AGENT_MESSAGE_TYPE = 'agent_message'
 AGENT_TEXT_PART_TYPES = frozenset(('input_text', 'text', 'output_text'))
 AGENT_OPAQUE_PREFIX = 'gAAAAA'
 AGENT_OPAQUE_MIN = 512
+# A sealed body is native state: it only means something on the route that produced
+# it. ``gpt-*`` is the same native-route signal ``expand()`` already uses when it
+# keeps native group boundaries, so it is reused here instead of inventing a second
+# allowlist. Nothing is dropped on a route that cannot read it: the readable header
+# is kept and an explicit notice replaces the unreadable body.
+AGENT_NATIVE_PREFIX = 'gpt-'
+AGENT_SEALED_NOTICE = (
+    '[sealed team-message body: this route cannot read native encrypted state, so the '
+    'payload above is missing here, not empty. Ask the sender to resend it as plain '
+    'message text, or continue this thread on the model that produced it.]')
 _AGENT_B64_ALPHABET = frozenset(
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-')
 
@@ -229,13 +239,44 @@ def agent_message_is_opaque(item):
                and agent_payload_is_opaque(part.get('encrypted_content')) for part in parts)
 
 
-def inline_agent_messages(items, counters=None):
-    """Deliver readable inter-agent messages as plain message text, in place order.
+def agent_route_reads_native_state(model):
+    """Whether a route can decode native (OpenAI-style) encrypted Responses state.
+
+    A model name is not proof that a route decodes Responses items, which is why a
+    *readable* message body is inlined for every model. A sealed body is different:
+    the ciphertext only means something where it was produced, and forwarding it adds
+    bytes without adding meaning, while deleting it silently loses the task payload.
+    """
+    return isinstance(model, str) and model.startswith(AGENT_NATIVE_PREFIX)
+
+
+def agent_sealed_notice(item):
+    """Readable header plus an explicit notice, never the ciphertext itself."""
+    parts = item.get('content')
+    header = []
+    if isinstance(parts, list):
+        for part in parts:
+            if not isinstance(part, dict) or part.get('type') not in AGENT_TEXT_PART_TYPES:
+                continue
+            text = part.get('text')
+            if isinstance(text, str) and text.strip():
+                header.append(text.strip())
+    joined = '\n'.join(header).strip()
+    return (joined + '\n\n' + AGENT_SEALED_NOTICE) if joined else AGENT_SEALED_NOTICE
+
+
+def inline_agent_messages(items, counters=None, native_state_ok=True):
+    """Deliver inter-agent messages as plain message text, in place order.
 
     The original list is returned when nothing needed conversion, which keeps the
     no-mutation contract for every request that carries no readable team message.
     ``counters`` is an optional dict which receives how many messages were delivered
     and how many were left alone, so a silent non-delivery stays observable.
+
+    ``native_state_ok`` says whether this route decodes native encrypted state. On a
+    route that does not, a sealed body becomes the readable header plus a notice:
+    an agent that is told a payload exists can ask for it again, while an agent that
+    silently receives nothing answers that it was given no task.
     """
     if not isinstance(items, list):
         return items
@@ -251,12 +292,21 @@ def inline_agent_messages(items, counters=None):
                 if counters is not None:
                     counters['inlined'] = counters.get('inlined', 0) + 1
                 continue
+            sealed = agent_message_is_opaque(item)
             if counters is not None:
                 counters['left_alone'] = counters.get('left_alone', 0) + 1
-                # Split the reason: ciphertext we cannot decode versus an item with no
-                # readable body at all. The two need different follow-up work.
-                kind = 'left_opaque' if agent_message_is_opaque(item) else 'left_unreadable'
+                # Split the reason: ciphertext versus an item with no readable body at
+                # all, and whether that ciphertext even had a chance here. They need
+                # different follow-up work.
+                kind = ('left_opaque' if native_state_ok else 'notice_opaque') if sealed \
+                    else 'left_unreadable'
                 counters[kind] = counters.get(kind, 0) + 1
+            if sealed and not native_state_ok:
+                result.append({'type': 'message', 'role': 'user',
+                               'content': [{'type': 'input_text',
+                                            'text': agent_sealed_notice(item)}]})
+                changed = True
+                continue
         result.append(item)
     return result if changed else items
 
@@ -923,7 +973,8 @@ class Adapter:
             for key, value in (('agent_messages_inlined', counters.get('inlined', 0)),
                                ('agent_messages_left_alone', counters.get('left_alone', 0)),
                                ('agent_messages_left_opaque', counters.get('left_opaque', 0)),
-                               ('agent_messages_left_unreadable', counters.get('left_unreadable', 0))):
+                               ('agent_messages_left_unreadable', counters.get('left_unreadable', 0)),
+                               ('agent_messages_notice_opaque', counters.get('notice_opaque', 0))):
                 # Always publish both keys, including a zero: a monitor that reads
                 # "must be 0" must not silently pass because the key is absent.
                 self.stats[key] = self.stats.get(key, 0) + value
@@ -955,7 +1006,8 @@ class Adapter:
         # to a third-party upstream that drops them), and the only cost of inlining a
         # message the route would have decoded anyway is the item shape the model sees.
         agent_message_counters={}
-        expanded=inline_agent_messages(expanded,agent_message_counters)
+        expanded=inline_agent_messages(expanded,agent_message_counters,
+                                       native_state_ok=agent_route_reads_native_state(model))
         self.note_agent_messages(agent_message_counters)
         # The byte layer runs after every protocol adaptation and before the request
         # leaves the machine: the two layers address different costs (tokens vs
