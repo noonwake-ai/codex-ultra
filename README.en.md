@@ -12,7 +12,7 @@ Kimi and GLM into Codex and use them like native models.
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-228%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-241%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -147,6 +147,15 @@ logs or compaction output.
 
 Encrypted on your Mac, with the key in the system Keychain. `rollback` restores
 the network endpoint only and leaves those records alone — older chats need them.
+</details>
+
+<details><summary><b>Sub-agents answer "no task payload" on third-party models?</b></summary>
+
+Fixed. A team message carried its body in a content part named `encrypted_content`: OpenAI's
+native route decodes it, a routed provider only understands plain text, so the sub-agent saw
+the `Payload:` header and nothing else. The adapter now inlines readable bodies as ordinary
+text (order preserved) and leaves genuinely opaque blobs untouched. See
+`test_agent_messages.py`.
 </details>
 
 <details><summary><b>Why use the full context window by default?</b></summary>

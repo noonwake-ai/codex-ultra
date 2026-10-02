@@ -140,10 +140,91 @@ ZSTD_PROBE_COOLDOWN_MAX = 3600
 KNOWN_INPUT_TYPES = frozenset((
     'message', 'reasoning', 'function_call', 'function_call_output',
     'custom_tool_call', 'custom_tool_call_output', 'compaction',
-    'compaction_trigger',
+    'compaction_trigger', 'agent_message',
 ))
 TOOL_RESULT_TYPES = frozenset(('function_call_output', 'custom_tool_call_output'))
 MEDIA_PART_TYPES = frozenset(('input_image', 'input_file', 'input_audio', 'input_video'))
+
+# Inter-agent messages arrive as an ``agent_message`` item whose body is a content
+# part typed ``encrypted_content``. Native Responses routes decode that part; a routed
+# third-party provider only understands plain message text, so the header
+# ("Message Type: NEW_TASK ... Payload:") reached the model while the payload was
+# dropped and the receiving agent answered "no task payload". The part holds readable
+# text on this route, so it is inlined verbatim. Genuinely opaque state (an
+# OpenAI-style Fernet blob) is left untouched rather than pasted in as ciphertext.
+AGENT_MESSAGE_TYPE = 'agent_message'
+AGENT_TEXT_PART_TYPES = frozenset(('input_text', 'text', 'output_text'))
+AGENT_OPAQUE_PREFIX = 'gAAAAA'
+AGENT_OPAQUE_MIN = 512
+_AGENT_B64_ALPHABET = frozenset(
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-')
+
+
+def agent_payload_is_opaque(value):
+    """Whether a payload part is opaque state rather than readable message text."""
+    if not isinstance(value, str) or not value:
+        return False
+    if value.startswith(AGENT_OPAQUE_PREFIX):
+        return True
+    if len(value) < AGENT_OPAQUE_MIN:
+        return False
+    return all(ch in _AGENT_B64_ALPHABET for ch in value)
+
+
+def agent_message_text(item):
+    """Return the readable body of one inter-agent message, or None.
+
+    Only a readable body counts. An item whose body is opaque state stays as it is:
+    inlining ciphertext would add bytes to the prompt without adding meaning, and the
+    provider cannot read it either way.
+    """
+    parts = item.get('content')
+    if not isinstance(parts, list):
+        return None
+    chunks = []
+    readable = False
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        kind = part.get('type')
+        if kind in AGENT_TEXT_PART_TYPES:
+            text = part.get('text')
+            if isinstance(text, str) and text:
+                chunks.append(text)
+        elif kind == 'encrypted_content':
+            body = part.get('encrypted_content')
+            if not isinstance(body, str) or not body:
+                continue
+            if agent_payload_is_opaque(body):
+                return None
+            chunks.append(body)
+            readable = True
+    if not readable:
+        return None
+    text = ''.join(chunks).strip()
+    return text or None
+
+
+def inline_agent_messages(items):
+    """Deliver readable inter-agent messages as plain message text, in place order.
+
+    The original list is returned when nothing needed conversion, which keeps the
+    no-mutation contract for every request that carries no readable team message.
+    """
+    if not isinstance(items, list):
+        return items
+    result = []
+    changed = False
+    for item in items:
+        if isinstance(item, dict) and item.get('type') == AGENT_MESSAGE_TYPE:
+            text = agent_message_text(item)
+            if text:
+                result.append({'type': 'message', 'role': 'user',
+                               'content': [{'type': 'input_text', 'text': text}]})
+                changed = True
+                continue
+        result.append(item)
+    return result if changed else items
 
 
 OPAQUE_REASONING_MIN = 256
@@ -804,6 +885,8 @@ class Adapter:
         else:
             prepared=body
             expanded=self.expand(items,model,headers=headers)
+        # Routed providers cannot read an agent message body; deliver it as text.
+        expanded=inline_agent_messages(expanded)
         # The byte layer runs after every protocol adaptation and before the request
         # leaves the machine: the two layers address different costs (tokens vs
         # bytes) and neither may change what the model is *asked*.
@@ -992,6 +1075,7 @@ class Adapter:
     def compact(self, body, headers):
         raw_items=body.get('input',[])
         items=self.expand(raw_items,body.get('model',''),True,headers)
+        items=inline_agent_messages(items)
         self.observe_request('compact',body,raw_items,items)
         if not self.compaction_slots.acquire(blocking=False): raise RuntimeError('compaction_busy_retry_later')
         try:

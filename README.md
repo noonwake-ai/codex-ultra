@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-228%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-241%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -141,6 +141,14 @@ python3 -m unittest discover -s . -p 'test_*.py'
 
 加密存在你的 Mac 上，密钥在系统 Keychain。`rollback` 只还原网络地址，
 不删这些记录——老对话还要靠它读取。
+</details>
+
+<details><summary><b>换第三方模型后，Sub Agent 派活收不到任务？</b></summary>
+
+已经修了。团队消息的正文放在一个叫 `encrypted_content` 的分量里：GPT 原生路由能解码它，
+第三方路由只认纯文本，于是子代理只看到 `Payload:` 这行标题，回你一句"没有具体任务"。
+现在适配层在转发前把可读正文内联成普通文本（顺序不变），真正不透明的密文保持原样。
+回归见 `test_agent_messages.py`。
 </details>
 
 <details><summary><b>为什么默认用满上下文窗口？</b></summary>
