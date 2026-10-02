@@ -12,7 +12,7 @@ Kimi and GLM into Codex and use them like native models.
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-270%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-279%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -129,7 +129,7 @@ Full details in [install](docs/INSTALL.md).
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-270 offline tests, no paid requests. Covers compaction handoff, encrypted
+279 offline tests, no paid requests. Covers compaction handoff, encrypted
 checkpoints across restarts, tamper refusal, image pairing, gateway failures,
 catalog policy, endpoint rewrite and rollback. CI runs 3.11 / 3.12 / 3.13.
 
@@ -161,7 +161,15 @@ plain text, so the sub-agent saw the `Payload:` header and nothing else.
   route; toward a third-party route the readable header is kept and the body becomes an explicit
   notice that the payload cannot be read here and should be resent as plain text.
 
-See `test_agent_messages.py` (26 tests).
+Two further shapes that silently lost their body are covered too: an empty
+`encrypted_content` part (header arrived, body did not) and ciphertext hidden inside the
+text part; that notice keeps the header only and never pastes ciphertext into the prompt.
+A readable body next to sealed state is still delivered. The compaction route
+(`/responses/compact`) deliberately keeps sealed state untouched — the compactor runs on
+this service's own configured route, and rewriting could overwrite bytes its upstream can
+still read.
+
+See `test_agent_messages.py` (32 tests).
 </details>
 
 <details><summary><b>Why use the full context window by default?</b></summary>

@@ -5,7 +5,8 @@ import threading
 import time
 import unittest
 
-from direct_handoff import Strategy, _encoding, _json, _output_text, _request_tokens
+from direct_handoff import (Strategy, _encoding, _group_units, _json, _map_cuts, _output_text,
+                            _request_tokens)
 
 
 def completed(text):
@@ -187,6 +188,63 @@ class ChunkTests(unittest.TestCase):
         self.assertLessEqual(len(maps), 4)
         self.assertLess(max(weights) - min(weights), 900)
         self.assert_bounded(client)
+
+    def test_planned_cuts_always_cover_every_unit_within_budget(self):
+        # Adversarial weights: a plan that puts the remaining large items in a final
+        # group over the budget used to be turned into a shorter request, and the
+        # units after that shrunken group were never sent to any map call at all.
+        capacity = 224000 - 1474 - 2
+        shapes = [
+            [40023, 128963, 35576, 217903, 17788, 217903],
+            [capacity - 1, capacity - 1, 1],
+            [capacity, 1, 1, 1],
+            [1] * 40,
+            [217903, 217903, 217903, 1, 1, 1, 1],
+        ]
+        for weights in shapes:
+            with self.subTest(weights=weights[:4]):
+                cuts = _map_cuts(weights, capacity, 4, 1474)
+                self.assertEqual(cuts[-1], len(weights))
+                cursor = 0
+                for end in cuts:
+                    self.assertGreater(end, cursor, "empty group in the plan")
+                    self.assertLessEqual(sum(weights[cursor:end]), capacity)
+                    cursor = end
+                self.assertEqual(cursor, len(weights))
+
+    def test_a_rejected_final_group_hands_its_units_to_the_next_request(self):
+        capacity = 1000
+        weights = [400, 400, 400, 400]
+        cuts = _map_cuts(weights, capacity, 2, 10)
+        payloads = []
+
+        def payload_for(begin, end):
+            payloads.append((begin, end))
+            return (begin, end)
+
+        def fits(payload):
+            # The real request check is authoritative and can reject a planned group;
+            # the plan itself was built from an estimate.
+            return payload[1] - payload[0] > 1
+
+        groups = _group_units(['u%d' % i for i in range(len(weights))], cuts, payload_for, fits)
+        self.assertEqual([(start, end) for start, end, _ in groups], [(0, 2), (2, 4)])
+        self.assertEqual([unit for start, end, _ in groups for unit in range(start, end)],
+                         [0, 1, 2, 3])
+
+    def test_map_payloads_are_never_empty_and_cover_the_history(self):
+        history = [{"role": "user", "content": "item%d " % index + "evidence " * 200}
+                   for index in range(24)]
+        client = Client()
+        Strategy().compact(history, client, self.options)
+        maps = sorted(((int(label.rsplit("-map", 1)[1]), payload)
+                       for payload, label in client.calls if "-map" in label))
+        seen = []
+        for _, payload in maps:
+            units = source_data(payload)
+            self.assertTrue(units, "a map request was sent without any source unit")
+            seen.extend(unit["source_item_index"] for unit in units)
+        self.assertEqual(seen, list(range(len(history))))
 
     def test_multilevel_reduction_bounds_every_request(self):
         history = [{"role": "user", "content": "item%d " % index + "verified " * 500}

@@ -174,43 +174,40 @@ def _greedy_groups(weights, limit):
     return groups
 
 
-def _even_cuts(weights, capacity, count):
-    """Cut consecutive weights into exactly ``count`` groups of similar weight.
+def _minmax_cuts(weights, capacity, count):
+    """Split consecutive weights into at most ``count`` groups, smallest max first.
 
-    Greedy filling is optimal for the group count but always maximizes the *first*
+    Greedy filling is optimal for the group *count* but always maximizes the first
     group and leaves a short tail: a 937k-token history became 181k + 181k + ... +
     70k, and a 305k one became 224k + 81k. The tail is only free when it lands in a
-    later wave; when both groups run at once the wall clock is simply the largest
-    group. Groups are grown to their share of the remaining weight here, so no unit
-    is dropped, reordered or sent twice. Never called with a count whose total would
-    exceed the per-request capacity.
+    later wave; when two groups run at once the wall clock is simply the largest one.
+
+    This is the classic minimum-largest-sum partition: binary search the smallest
+    per-group limit that still needs no more than ``count`` groups. Greedy cutting at
+    that limit never emits an empty group, always covers every unit, and honors
+    ``capacity`` because the limit is capped by it. Unit order is untouched, so no
+    unit is dropped, reordered or sent twice. Callers must only pass a ``count`` the
+    per-request budget can actually satisfy.
     """
-    cuts = []
-    start = 0
-    remaining = sum(weights)
-    left = count
-    while left > 1:
-        target = remaining / float(left)
-        total = 0
-        end = start
-        while end < len(weights):
-            weight = weights[end]
-            if total + weight > capacity:
-                break
-            total += weight
-            end += 1
-            # Stop once this group has its share, but only while the rest still fit
-            # the groups that are left; otherwise the last group overflows.
-            if total >= target and remaining - total <= (left - 1) * capacity:
-                break
-        if end == start:
-            return []
-        cuts.append(end)
-        remaining -= total
-        left -= 1
-        start = end
-    cuts.append(len(weights))
-    return cuts
+    if not weights:
+        return []
+    if max(weights) > capacity:
+        raise RuntimeError("compactor_intermediate_too_large")
+    total = sum(weights)
+    count = max(1, min(count, len(weights)))
+    low = max(max(weights), -(-total // count))
+    high = min(capacity, total)
+    if low > high:
+        raise RuntimeError("compactor_intermediate_too_large")
+    limit = high
+    while low <= high:
+        middle = (low + high) // 2
+        if len(_greedy_groups(weights, middle)) <= count:
+            limit = middle
+            high = middle - 1
+        else:
+            low = middle + 1
+    return [end for _, end in _greedy_groups(weights, limit)]
 
 
 def _schedule_seconds(weights, cuts, workers, overhead):
@@ -219,7 +216,7 @@ def _schedule_seconds(weights, cuts, workers, overhead):
     The pool starts a new chunk as soon as any worker frees up, so a small extra
     chunk is nearly free while a full-size last wave costs a whole extra round.
     Every chunk also pays the prompt prefill, which is why the estimate adds
-    ``overhead`` per chunk instead of comparing raw weights.
+    ``overhead`` per chunk instead of comparing raw weights alone.
     """
     loads = [0] * max(1, workers)
     start = 0
@@ -244,18 +241,67 @@ def _map_cuts(weights, capacity, workers, overhead):
     if max(weights) > capacity:
         raise RuntimeError("compactor_intermediate_too_large")
     minimum = len(_greedy_groups(weights, capacity))
-    best = None
-    last = min(minimum + max(1, workers) - 1, len(weights))
+    total = len(weights)
+    candidates = [[end for _, end in _greedy_groups(weights, capacity)]]
+    last = min(minimum + max(1, workers) - 1, total)
     for count in range(minimum, last + 1):
-        cuts = _even_cuts(weights, capacity, count)
-        if len(cuts) != count:
+        candidates.append(_minmax_cuts(weights, capacity, count))
+    best = None
+    for cuts in candidates:
+        if not _cuts_are_sound(weights, cuts, capacity):
+            # A plan that cannot cover every unit inside the budget is not a plan;
+            # fail closed instead of quietly summarizing less history than asked.
             continue
-        key = (_schedule_seconds(weights, cuts, workers, overhead), count)
+        key = (_schedule_seconds(weights, cuts, workers, overhead), len(cuts))
         if best is None or key < best[0]:
             best = (key, cuts)
     if best is None:
         raise RuntimeError("compactor_intermediate_too_large")
     return best[1]
+
+
+def _cuts_are_sound(weights, cuts, capacity):
+    """Every unit exactly once, in order, with no group over the request budget."""
+    cursor = 0
+    limit = capacity
+    seen = 0
+    for end in cuts:
+        if end <= cursor or end > len(weights):
+            return False
+        if sum(weights[cursor:end]) > limit:
+            return False
+        cursor = end
+        seen += 1
+    return cursor == len(weights) and seen > 0
+
+
+def _group_units(serialized_units, cuts, payload_for, fits):
+    """Turn planned cut points into request payloads without dropping any unit.
+
+    ``cuts`` is a plan, not a promise: the per-unit weights are an estimate, so the
+    real request check can still reject a planned group. Sizing therefore has to be
+    driven by the unit cursor, never by the plan's end points — a group that shrinks
+    hands its units to the next group, and the loop only ends once the cursor reaches
+    the last unit. (Driving it by the plan silently dropped the history after a shrunk
+    final group: the loop ran out of plan entries while units were still unsent.)
+    """
+    groups = []
+    total = len(serialized_units)
+    cursor = 0
+    index = 0
+    while cursor < total:
+        end = cuts[index] if index < len(cuts) else total
+        if end > total:
+            end = total
+        while end - cursor > 1 and not fits(payload_for(cursor, end)):
+            end -= 1
+        payload = payload_for(cursor, end)
+        if end <= cursor or not fits(payload):
+            raise RuntimeError("compactor_intermediate_too_large")
+        groups.append((cursor, end, payload))
+        cursor = end
+        index += 1
+    return groups
 
 
 def _output_text(response: Dict[str, Any]) -> str:
@@ -375,21 +421,11 @@ class Strategy:
             if capacity <= 0:
                 raise RuntimeError("compactor_intermediate_too_large")
             weights = [_encoding_tokens(unit, encoding) + 1 for unit in serialized_units]
-            groups = []
-            start = 0
-            for end in _map_cuts(weights, capacity, workers, overhead):
-                # The weight model is an estimate; the real request stays the
-                # authority, so an over-budget group gives a unit back instead of
-                # failing the whole compaction.
-                while end - start > 1 and not fits(
-                        stage_request(prompt, serialized_units[start:end], marker)):
-                    end -= 1
-                payload = stage_request(prompt, serialized_units[start:end], marker)
-                if not fits(payload):
-                    raise RuntimeError("compactor_intermediate_too_large")
-                groups.append((start, end, payload))
-                start = end
-            return groups
+            cuts = _map_cuts(weights, capacity, workers, overhead)
+            return _group_units(
+                serialized_units, cuts,
+                lambda begin, end: stage_request(prompt, serialized_units[begin:end], marker),
+                fits)
 
         metrics = []
         direct_request = request(direct_prompt, raw_history, "RAW RESPONSES HISTORY")

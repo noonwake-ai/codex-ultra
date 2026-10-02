@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-270%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-279%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -125,7 +125,7 @@ python3 install.py --upstream https://你的网关/v1 \
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-270 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
+279 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
 网关失败、目录策略、端点改写与回滚。CI 跑 Python 3.11 / 3.12 / 3.13。
 
 ---
@@ -153,7 +153,13 @@ python3 -m unittest discover -s . -p 'test_*.py'
   适配层保留可读标题，并把正文换成一句明确说明——"这个载荷在本路由读不出来，请让发送方
   用纯文本重发"。实测本机 686 条密封消息的正文都为空标题形式，静默丢掉才是真正的丢件。
 
-回归见 `test_agent_messages.py`（26 项）。
+- 另外两种会静默丢件的形态也覆盖了：`encrypted_content` 为空串（只有标题、正文没到）、
+  以及密文被藏在同一条文本分量里；后者的通知只保留标题、绝不把密文拼进 prompt。正文可读、
+  密封状态同时存在时，可读正文照样送出去。
+- 压缩路径（`/responses/compact`）保持原样不放通知：压缩器走本服务自己的路由，改写可能
+  覆盖掉它上游还读得到的字节；这里只内联可读正文。
+
+回归见 `test_agent_messages.py`（32 项）。
 </details>
 
 <details><summary><b>为什么默认用满上下文窗口？</b></summary>

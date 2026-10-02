@@ -197,7 +197,9 @@ def agent_message_text(item):
 
     Only a readable body counts. An item whose body is opaque state stays as it is:
     inlining ciphertext would add bytes to the prompt without adding meaning, and the
-    provider cannot read it either way.
+    provider cannot read it either way. Ciphertext is judged by what a part *carries*,
+    not by the part type: the body has been observed both in an ``encrypted_content``
+    part and inside the text part that also holds the header.
     """
     parts = item.get('content')
     if not isinstance(parts, list):
@@ -210,8 +212,13 @@ def agent_message_text(item):
         kind = part.get('type')
         if kind in AGENT_TEXT_PART_TYPES:
             text = part.get('text')
-            if isinstance(text, str) and text:
-                chunks.append(text)
+            if not isinstance(text, str) or not text:
+                continue
+            if text.startswith(('Message Type:', 'Message Type：')) and agent_payload_is_opaque(
+                    agent_message_body(text)):
+                # The header is readable but the body behind it is sealed in this same part.
+                return None
+            chunks.append(text)
         elif kind == 'encrypted_content':
             body = part.get('encrypted_content')
             if not isinstance(body, str) or not body:
@@ -231,12 +238,34 @@ def agent_message_text(item):
 
 
 def agent_message_is_opaque(item):
-    """Whether an item was left alone because its body is opaque ciphertext."""
+    """Whether an item carries a body this route cannot read.
+
+    Three observed shapes count: an ``encrypted_content`` part holding ciphertext, an
+    empty ``encrypted_content`` part, and ciphertext hidden in the text part behind the
+    header. A genuinely readable body never counts.
+    """
     parts = item.get('content')
     if not isinstance(parts, list):
         return False
-    return any(isinstance(part, dict) and part.get('type') == 'encrypted_content'
-               and agent_payload_is_opaque(part.get('encrypted_content')) for part in parts)
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        if part.get('type') == 'encrypted_content':
+            body = part.get('encrypted_content')
+            # An empty part is a header with no body at all: the receiver silently
+            # misses that message exactly like it misses ciphertext.
+            if not isinstance(body, str) or not body:
+                return True
+            if agent_payload_is_opaque(body):
+                return True
+        elif part.get('type') in AGENT_TEXT_PART_TYPES:
+            text = part.get('text')
+            if not isinstance(text, str) or not text:
+                continue
+            if text.startswith(('Message Type:', 'Message Type：')) and agent_payload_is_opaque(
+                    agent_message_body(text)):
+                return True
+    return False
 
 
 def agent_route_reads_native_state(model):
@@ -251,17 +280,38 @@ def agent_route_reads_native_state(model):
 
 
 def agent_sealed_notice(item):
-    """Readable header plus an explicit notice, never the ciphertext itself."""
+    """Every readable part of the message, plus the notice — never the ciphertext.
+
+    A message can hold a readable body *and* sealed state in the same item, so dropping
+    the whole item body would lose text the sender did deliver.
+    """
     parts = item.get('content')
-    header = []
+    readable = []
     if isinstance(parts, list):
         for part in parts:
-            if not isinstance(part, dict) or part.get('type') not in AGENT_TEXT_PART_TYPES:
+            if not isinstance(part, dict):
                 continue
-            text = part.get('text')
-            if isinstance(text, str) and text.strip():
-                header.append(text.strip())
-    joined = '\n'.join(header).strip()
+            if part.get('type') in AGENT_TEXT_PART_TYPES:
+                text = part.get('text')
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                body = agent_message_body(text)
+                if (text.startswith(('Message Type:', 'Message Type：'))
+                        and agent_payload_is_opaque(body)):
+                    # Keep the header, drop the sealed tail: a notice must never
+                    # forward ciphertext into the prompt.
+                    marker = 'Payload:'
+                    index = text.find(marker)
+                    readable.append(text[:index + len(marker)].strip() if index != -1
+                                    else text.strip())
+                else:
+                    readable.append(text.strip())
+            elif part.get('type') == 'encrypted_content':
+                body = part.get('encrypted_content')
+                if (isinstance(body, str) and body.strip()
+                        and not agent_payload_is_opaque(body)):
+                    readable.append(body.strip())
+    joined = '\n'.join(readable).strip()
     return (joined + '\n\n' + AGENT_SEALED_NOTICE) if joined else AGENT_SEALED_NOTICE
 
 
@@ -1198,6 +1248,11 @@ class Adapter:
         raw_items=body.get('input',[])
         items=self.expand(raw_items,body.get('model',''),True,headers)
         agent_message_counters={}
+        # The compactor is reached through this service's own client, and its route is
+        # configured separately from the thread's model. Sealed state is therefore kept
+        # as it is here (native_state_ok stays True): rewriting it into a notice would
+        # overwrite bytes the compactor's upstream may still be able to read. Readable
+        # bodies are still inlined, so the compactor sees every readable team message.
         items=inline_agent_messages(items,agent_message_counters)
         self.note_agent_messages(agent_message_counters)
         self.observe_request('compact',body,raw_items,items)

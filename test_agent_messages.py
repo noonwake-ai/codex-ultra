@@ -16,7 +16,7 @@ import json
 import unittest
 
 from adapter import (agent_message_body, agent_message_is_opaque, agent_message_text,
-                     agent_payload_is_opaque, inline_agent_messages)
+                     agent_payload_is_opaque, agent_sealed_notice, inline_agent_messages)
 from test_upstream_upload import FakeResponse, SSE_200, body_of, make, post
 
 HEADER = 'Message Type: NEW_TASK\nTask name: /root/probe\nSender: /root\nPayload:\n'
@@ -131,6 +131,35 @@ class InlineTests(unittest.TestCase):
         self.assertEqual(inline_agent_messages(None), None)
 
 
+class SealedShapeTests(unittest.TestCase):
+    """Shapes observed in real traffic, plus the ones that could silently lose a body."""
+
+    def test_empty_encrypted_part_counts_as_sealed(self):
+        item = agent_message('')
+        self.assertTrue(agent_message_is_opaque(item))
+        self.assertIsNone(agent_message_text(item))
+
+    def test_ciphertext_inside_the_text_part_counts_as_sealed(self):
+        item = agent_message(parts=[{'type': 'input_text', 'text': HEADER + FERNET}])
+        self.assertTrue(agent_message_is_opaque(item))
+        self.assertIsNone(agent_message_text(item))
+
+    def test_readable_body_after_the_header_stays_readable(self):
+        item = agent_message(parts=[{'type': 'input_text', 'text': HEADER + '只回复 PROBE-1'}])
+        self.assertFalse(agent_message_is_opaque(item))
+        self.assertIn('PROBE-1', agent_message_text(item))
+
+    def test_notice_keeps_a_readable_body_sitting_next_to_sealed_state(self):
+        item = agent_message(parts=[
+            {'type': 'encrypted_content', 'encrypted_content': '会议结论：预览已验证，未发布。'},
+            {'type': 'input_text', 'text': HEADER.rstrip(chr(10))},
+            {'type': 'encrypted_content', 'encrypted_content': FERNET}])
+        notice = agent_sealed_notice(item)
+        self.assertIn('预览已验证', notice)
+        self.assertIn('cannot read native encrypted state', notice)
+        self.assertNotIn(FERNET, notice)
+
+
 class ForwardedWireTests(unittest.TestCase):
     def setUp(self):
         self.adapter, self.transport, self.server = make()
@@ -198,6 +227,27 @@ class ForwardedWireTests(unittest.TestCase):
                            'input': [agent_message('正文'), inline_answer('结论'),
                                      agent_message(FERNET)]})
         self.assertEqual(self.adapter.stats.get('agent_messages_inlined'), 2)
+        self.assertEqual(self.adapter.stats.get('agent_messages_notice_opaque'), 1)
+
+    def test_empty_sealed_part_becomes_a_notice_on_a_third_party_route(self):
+        # A header with an empty body used to sit in the request as an unreadable item.
+        response = post(self.server, {'model': 'deepseek-flash', 'stream': False,
+                                      'input': [agent_message(''), user('继续')]})
+        self.assertEqual(response.status_code, 200)
+        forwarded = self.forwarded()
+        self.assertNotIn('agent_message', [i.get('type') for i in forwarded['input']])
+        self.assertIn('cannot read native encrypted state',
+                      forwarded['input'][0]['content'][0]['text'])
+        self.assertEqual(self.adapter.stats.get('agent_messages_notice_opaque'), 1)
+        self.assertEqual(self.adapter.stats.get('agent_messages_left_unreadable'), 0)
+
+    def test_ciphertext_in_the_text_part_is_not_forwarded_to_a_third_party_route(self):
+        response = post(self.server, {'model': 'deepseek-flash', 'stream': False,
+                                      'input': [agent_message(parts=[{'type': 'input_text',
+                                                                      'text': HEADER + FERNET}])]})
+        self.assertEqual(response.status_code, 200)
+        forwarded = self.forwarded()
+        self.assertNotIn(FERNET, json.dumps(forwarded))
         self.assertEqual(self.adapter.stats.get('agent_messages_notice_opaque'), 1)
 
     def test_delivery_is_counted(self):
