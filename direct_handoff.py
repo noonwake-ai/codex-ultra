@@ -80,6 +80,9 @@ This is an internal self-check only; do not claim independent validation.
 """
 
 
+# How many map / intermediate-reduce calls may run at once. The work is already
+# independent per chunk; the cap is a rate-limit guard, not a correctness rule.
+DEFAULT_MAP_WORKERS = 4
 DEFAULT_INPUT_TOKEN_BUDGET = 224000
 MAX_INPUT_TOKEN_BUDGET = 224000
 REQUEST_TOKEN_MARGIN = 256
@@ -186,6 +189,9 @@ class Strategy:
         budget = int(options.get("budget_tokens", 8000))
         maximum = int(options.get("max_output_tokens", 16000))
         input_budget = int(options.get("input_token_budget", DEFAULT_INPUT_TOKEN_BUDGET))
+        workers = int(options.get("map_workers", DEFAULT_MAP_WORKERS) or DEFAULT_MAP_WORKERS)
+        if workers < 1:
+            workers = 1
         if budget <= 0 or maximum <= 0:
             raise ValueError("Positive budget_tokens and max_output_tokens are required")
         if not 0 < input_budget <= MAX_INPUT_TOKEN_BUDGET:
@@ -325,7 +331,7 @@ class Strategy:
             groups = pack(units, map_prompt, "PARTIAL RESPONSES HISTORY")
             map_count = len(groups)
             ordered = [None] * map_count
-            with ThreadPoolExecutor(max_workers=min(2, map_count)) as pool:
+            with ThreadPoolExecutor(max_workers=min(workers, map_count)) as pool:
                 futures = {pool.submit(checked_call, payload, label + "-map%d" % index, "map"): index
                            for index, (_, _, payload) in enumerate(groups)}
                 try:
@@ -351,14 +357,29 @@ class Strategy:
                 reduced_groups = pack(serialized_nodes, intermediate_prompt, "ORDERED EVIDENCE LEDGERS")
                 if len(reduced_groups) >= len(nodes):
                     raise RuntimeError("compactor_reduction_did_not_converge")
-                next_nodes = []
-                for index, (start, end, payload) in enumerate(reduced_groups):
-                    partial, metric = checked_call(payload,
-                        label + "-reduce%d-part%d" % (reduce_levels, index), "reduce")
-                    metrics.append(metric)
-                    next_nodes.append({"source_units": [nodes[start]["source_units"][0],
-                                                         nodes[end - 1]["source_units"][1]],
-                                       "summary": partial})
+                # The intermediate reductions cover disjoint ranges and only their
+                # *results* are ordered, so they run on the same bounded pool; a serial
+                # loop here was one of the reasons a long history took minutes.
+                next_nodes = [None] * len(reduced_groups)
+                with ThreadPoolExecutor(max_workers=min(workers, len(reduced_groups))) as pool:
+                    futures = {pool.submit(checked_call, payload,
+                                           label + "-reduce%d-part%d" % (reduce_levels, index),
+                                           "reduce"): index
+                               for index, (_, _, payload) in enumerate(reduced_groups)}
+                    try:
+                        for future in as_completed(futures):
+                            index = futures[future]
+                            partial, metric = future.result()
+                            start, end, _ = reduced_groups[index]
+                            metrics.append(metric)
+                            next_nodes[index] = {
+                                "source_units": [nodes[start]["source_units"][0],
+                                                 nodes[end - 1]["source_units"][1]],
+                                "summary": partial}
+                    except BaseException:
+                        for future in futures:
+                            future.cancel()
+                        raise
                 nodes = next_nodes
 
         usage = {key: sum(metric["usage"].get(key, 0) for metric in metrics)

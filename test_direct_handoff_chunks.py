@@ -26,12 +26,26 @@ class Client:
         self.lock = threading.Lock()
         self.active = 0
         self.maximum_active = 0
+        self.active_by_stage = {}
+        self.maximum_active_by_stage = {}
+
+    @staticmethod
+    def stage_of(label):
+        if "-map" in label:
+            return "map"
+        if "-reduce" in label:
+            return "reduce"
+        return "direct"
 
     def call(self, payload, label):
+        stage = self.stage_of(label)
         with self.lock:
             self.calls.append((copy.deepcopy(payload), label))
             self.active += 1
             self.maximum_active = max(self.maximum_active, self.active)
+            self.active_by_stage[stage] = self.active_by_stage.get(stage, 0) + 1
+            self.maximum_active_by_stage[stage] = max(self.maximum_active_by_stage.get(stage, 0),
+                                                      self.active_by_stage[stage])
         try:
             if self.reply:
                 return self.reply(payload, label)
@@ -44,6 +58,7 @@ class Client:
         finally:
             with self.lock:
                 self.active -= 1
+                self.active_by_stage[self.stage_of(label)] -= 1
 
 
 class ChunkTests(unittest.TestCase):
@@ -94,8 +109,11 @@ class ChunkTests(unittest.TestCase):
         self.assertEqual([unit["source_item_index"] for unit in units], list(range(len(history))))
         self.assertEqual([unit["item"] for unit in units], original)
         self.assertEqual(history, original)
-        self.assertLessEqual(client.maximum_active, 2)
-        self.assertEqual(client.maximum_active, 2)
+        capped = Client()
+        Strategy().compact(history, capped, {**self.options, "map_workers": 2})
+        self.assertLessEqual(capped.maximum_active, 2)
+        self.assertEqual(capped.maximum_active, 2)
+        self.assertGreaterEqual(client.maximum_active, 3)
         final = next(payload for payload, label in client.calls if label.endswith("-final"))
         ranges = [node["source_units"] for node in source_data(final)]
         self.assertEqual(ranges[0][0], 0)
@@ -171,6 +189,63 @@ class ChunkTests(unittest.TestCase):
             Strategy().compact(history, client, self.options)
         self.assertFalse(any("-reduce" in label for _, label in client.calls))
         self.assert_bounded(client)
+
+    def test_map_workers_default_runs_more_than_two_chunks_at_once(self):
+        history = [{"role": "user", "content": "chunk%d " % index + "evidence " * 400}
+                   for index in range(24)]
+        def reply(payload, label):
+            # Hold the call open long enough for overlap to be observable at all.
+            time.sleep(0.01)
+            return completed("state " + "x " * 40)
+
+        client = Client(reply)
+        result = Strategy().compact(history, client, self.options)
+        self.assertGreaterEqual(result["metadata"]["map_chunks"], 4)
+        self.assertGreaterEqual(client.maximum_active_by_stage.get("map", 0), 3)
+
+    def test_map_workers_can_be_pinned_for_rate_limited_gateways(self):
+        history = [{"role": "user", "content": "chunk%d " % index + "evidence " * 400}
+                   for index in range(24)]
+        client = Client(lambda payload, label: completed("state " + "x " * 40))
+        Strategy().compact(history, client, {**self.options, "map_workers": 1})
+        self.assertEqual(client.maximum_active, 1)
+
+    def test_intermediate_reductions_run_in_parallel(self):
+        history = [{"role": "user", "content": "item%d " % index + "verified " * 500}
+                   for index in range(18)]
+
+        def reply(payload, label):
+            time.sleep(0.01)
+            if "-map" in label:
+                return completed("Source %s: " % source_data(payload)[0]["source_item_index"]
+                                 + "detail " * 240)
+            return completed("Merged ranges. " + "evidence " * 50)
+
+        client = Client(reply)
+        result = Strategy().compact(history, client, self.options)
+        self.assertGreaterEqual(result["metadata"]["reduce_levels"], 2)
+        self.assertGreaterEqual(client.maximum_active_by_stage.get("reduce", 0), 2)
+
+    def test_parallel_maps_finish_faster_than_a_single_worker(self):
+        history = [{"role": "user", "content": "chunk%d " % index + "evidence " * 400}
+                   for index in range(24)]
+
+        def slow(payload, label):
+            time.sleep(0.05)
+            return completed("state " + "x " * 40)
+
+        serial = Client(slow)
+        started = time.monotonic()
+        Strategy().compact(history, serial, {**self.options, "map_workers": 1})
+        serial_seconds = time.monotonic() - started
+
+        parallel = Client(slow)
+        started = time.monotonic()
+        Strategy().compact(history, parallel, {**self.options, "map_workers": 4})
+        parallel_seconds = time.monotonic() - started
+
+        self.assertEqual(len(serial.calls), len(parallel.calls))
+        self.assertLess(parallel_seconds, serial_seconds * 0.75)
 
     def test_strict_response_validation(self):
         invalid = [

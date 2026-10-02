@@ -1160,7 +1160,11 @@ class Adapter:
                 def call(self,payload,label):return adapter.call_compactor(payload,headers)
             result=self.strategy.compact(evidence,Client(),{
                 'model':self.cfg['compactor_model'],'effort':self.cfg['compactor_effort'],
-                'budget_tokens':8000,'max_output_tokens':16000,'scenario':'local_production'})
+                'budget_tokens':8000,'max_output_tokens':16000,'scenario':'local_production',
+                # Only forwarded when a deployment pins it; the strategy owns the default,
+                # so an unconfigured adapter asks for exactly what it always did.
+                **({'map_workers':int(self.cfg['compactor_map_workers'])}
+                   if self.cfg.get('compactor_map_workers') else {})})
             token=self.credential()
             if token in result['summary']:raise ValueError('secret_in_checkpoint')
             item={'type':'compaction','id':'cmp_'+uuid.uuid4().hex,
