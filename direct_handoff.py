@@ -145,6 +145,111 @@ def _request_tokens(request, encoding):
                for candidate in encoding) + REQUEST_TOKEN_MARGIN
 
 
+def _encoding_tokens(text, encoding):
+    # Cheapest conservative size of one serialized unit under either encoding.
+    return max(len(candidate.encode(text, disallowed_special=())) for candidate in encoding)
+
+
+def _greedy_groups(weights, limit):
+    """Cut consecutive weights into groups no heavier than ``limit``."""
+    groups = []
+    start = 0
+    total = 0
+    for index, weight in enumerate(weights):
+        if total and total + weight > limit:
+            groups.append((start, index))
+            start = index
+            total = 0
+        total += weight
+    if start < len(weights):
+        groups.append((start, len(weights)))
+    return groups
+
+
+def _even_cuts(weights, capacity, count):
+    """Cut consecutive weights into exactly ``count`` groups of similar weight.
+
+    Greedy filling is optimal for the group count but always maximizes the *first*
+    group and leaves a short tail: a 937k-token history became 181k + 181k + ... +
+    70k, and a 305k one became 224k + 81k. The tail is only free when it lands in a
+    later wave; when both groups run at once the wall clock is simply the largest
+    group. Groups are grown to their share of the remaining weight here, so no unit
+    is dropped, reordered or sent twice. Never called with a count whose total would
+    exceed the per-request capacity.
+    """
+    cuts = []
+    start = 0
+    remaining = sum(weights)
+    left = count
+    while left > 1:
+        target = remaining / float(left)
+        total = 0
+        end = start
+        while end < len(weights):
+            weight = weights[end]
+            if total + weight > capacity:
+                break
+            total += weight
+            end += 1
+            # Stop once this group has its share, but only while the rest still fit
+            # the groups that are left; otherwise the last group overflows.
+            if total >= target and remaining - total <= (left - 1) * capacity:
+                break
+        if end == start:
+            return []
+        cuts.append(end)
+        remaining -= total
+        left -= 1
+        start = end
+    cuts.append(len(weights))
+    return cuts
+
+
+def _schedule_seconds(weights, cuts, workers, overhead):
+    """Estimated wall clock of a chunk list on a bounded worker pool.
+
+    The pool starts a new chunk as soon as any worker frees up, so a small extra
+    chunk is nearly free while a full-size last wave costs a whole extra round.
+    Every chunk also pays the prompt prefill, which is why the estimate adds
+    ``overhead`` per chunk instead of comparing raw weights.
+    """
+    loads = [0] * max(1, workers)
+    start = 0
+    for end in cuts:
+        cost = overhead + sum(weights[start:end])
+        lightest = loads.index(min(loads))
+        loads[lightest] += cost
+        start = end
+    return max(loads) if loads else 0
+
+
+def _map_cuts(weights, capacity, workers, overhead):
+    """Choose the chunk split with the shortest estimated wall clock.
+
+    The minimum number of groups is a hard floor set by the per-request budget.
+    Between that floor and a few extra chunks, more groups mean less work per
+    group; fewer groups mean fewer paid calls. Both are compared on the same
+    worker-pool estimate, and a tie keeps the cheaper split.
+    """
+    if not weights:
+        return []
+    if max(weights) > capacity:
+        raise RuntimeError("compactor_intermediate_too_large")
+    minimum = len(_greedy_groups(weights, capacity))
+    best = None
+    last = min(minimum + max(1, workers) - 1, len(weights))
+    for count in range(minimum, last + 1):
+        cuts = _even_cuts(weights, capacity, count)
+        if len(cuts) != count:
+            continue
+        key = (_schedule_seconds(weights, cuts, workers, overhead), count)
+        if best is None or key < best[0]:
+            best = (key, cuts)
+    if best is None:
+        raise RuntimeError("compactor_intermediate_too_large")
+    return best[1]
+
+
 def _output_text(response: Dict[str, Any]) -> str:
     if (not isinstance(response, dict) or response.get("status") != "completed"
             or response.get("error") or response.get("incomplete_details")):
@@ -251,23 +356,29 @@ class Strategy:
                              "seconds": result.get("seconds")}
 
         def pack(serialized_units, prompt, marker):
-            # Binary search whole consecutive units. Never drop a unit or cut its
-            # source text just to fit the limit; oversized originals are handled below.
+            # Never drop a unit or cut its source text just to fit the limit;
+            # oversized originals are handled below. Sizes are measured once per
+            # unit instead of re-encoding every candidate payload during a binary
+            # search, which also kept a core busy for minutes on a 937k history.
+            if not serialized_units:
+                raise RuntimeError("compactor_intermediate_too_large")
+            overhead = _request_tokens(stage_request(prompt, [], marker), encoding)
+            capacity = input_budget - overhead - 2
+            if capacity <= 0:
+                raise RuntimeError("compactor_intermediate_too_large")
+            weights = [_encoding_tokens(unit, encoding) + 1 for unit in serialized_units]
             groups = []
             start = 0
-            while start < len(serialized_units):
-                low, high, best = start + 1, len(serialized_units), None
-                while low <= high:
-                    end = (low + high) // 2
-                    payload = stage_request(prompt, serialized_units[start:end], marker)
-                    if fits(payload):
-                        best = (end, payload)
-                        low = end + 1
-                    else:
-                        high = end - 1
-                if best is None:
+            for end in _map_cuts(weights, capacity, workers, overhead):
+                # The weight model is an estimate; the real request stays the
+                # authority, so an over-budget group gives a unit back instead of
+                # failing the whole compaction.
+                while end - start > 1 and not fits(
+                        stage_request(prompt, serialized_units[start:end], marker)):
+                    end -= 1
+                payload = stage_request(prompt, serialized_units[start:end], marker)
+                if not fits(payload):
                     raise RuntimeError("compactor_intermediate_too_large")
-                end, payload = best
                 groups.append((start, end, payload))
                 start = end
             return groups

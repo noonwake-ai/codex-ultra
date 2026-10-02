@@ -151,6 +151,43 @@ class ChunkTests(unittest.TestCase):
         self.assertEqual(result["metadata"]["source_fragments"], len(fragments))
         self.assert_bounded(client)
 
+    def test_chunk_sizes_are_evened_out_without_extra_calls(self):
+        # Uniform units that exactly fill four per group at this budget: greedy
+        # filling answered 4 + 4 + 4, so the stage waited on full chunks while the
+        # same twelve units can be sent as 3 + 3 + 3 + 3.
+        history = [{"role": "user", "content": "item%d " % index + "evidence " * 200}
+                   for index in range(12)]
+        client = Client()
+        result = Strategy().compact(history, client, self.options)
+        maps = sorted(((int(label.rsplit("-map", 1)[1]), payload)
+                       for payload, label in client.calls if "-map" in label))
+        counts = [len(source_data(payload)) for _, payload in maps]
+        self.assertEqual(counts, [3, 3, 3, 3])
+        weights = [_request_tokens(payload, self.encoding) for _, payload in maps]
+        self.assertLessEqual(max(weights) - min(weights), 8)
+        units = [unit for _, payload in maps for unit in source_data(payload)]
+        self.assertEqual([unit["source_item_index"] for unit in units], list(range(len(history))))
+        self.assertEqual(result["metadata"]["map_chunks"], len(maps))
+        self.assert_bounded(client)
+
+    def test_balancing_does_not_add_calls_for_an_uneven_history(self):
+        # A big first item plus small tails is the shape that produced a long
+        # first chunk and a short last one; the group count must not grow.
+        history = [{"role": "user", "content": "big " + "evidence " * 700}]
+        history += [{"role": "user", "content": "small%d " % index + "evidence " * 60}
+                    for index in range(10)]
+        client = Client()
+        result = Strategy().compact(history, client, self.options)
+        maps = sorted(((int(label.rsplit("-map", 1)[1]), payload)
+                       for payload, label in client.calls if "-map" in label))
+        weights = [_request_tokens(payload, self.encoding) for _, payload in maps]
+        units = [unit for _, payload in maps for unit in source_data(payload)]
+        self.assertEqual([unit["source_item_index"] for unit in units], list(range(len(history))))
+        self.assertEqual(result["metadata"]["map_chunks"], len(maps))
+        self.assertLessEqual(len(maps), 4)
+        self.assertLess(max(weights) - min(weights), 900)
+        self.assert_bounded(client)
+
     def test_multilevel_reduction_bounds_every_request(self):
         history = [{"role": "user", "content": "item%d " % index + "verified " * 500}
                    for index in range(18)]
