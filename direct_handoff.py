@@ -149,13 +149,48 @@ def _request_tokens(request, encoding):
     # Count every request string, including instructions, serialized source and
     # JSON wrapping. The extra margin covers API framing and transport additions.
     serialized = _json(request)
-    return max(len(candidate.encode(serialized, disallowed_special=()))
-               for candidate in encoding) + REQUEST_TOKEN_MARGIN
+    return max(_safe_encode(serialized, candidate) for candidate in encoding) + REQUEST_TOKEN_MARGIN
+
+
+# One regex pass this long stays bounded; tiktoken's engine does not degrade on it
+# and it is far below the size where its backtracking guard trips.
+ENCODE_CHUNK_CHARS = 16384
+
+
+def _chunked_tokens(text, encoding):
+    """Sum token counts over fixed windows, never one pass over the whole string."""
+    total = 0
+    for start in range(0, len(text), ENCODE_CHUNK_CHARS):
+        chunk = text[start:start + ENCODE_CHUNK_CHARS]
+        try:
+            total += len(encoding.encode(chunk, disallowed_special=()))
+        except (ValueError, RuntimeError):
+            # Kept per-character: the only bound still available, and an over-estimate,
+            # which is the safe direction for a budget check.
+            total += len(chunk)
+    return total
+
+
+def _safe_encode(text, encoding):
+    """Token count that cannot blow up on one pathological run.
+
+    tiktoken's regex engine raises ``Max stack size exceeded for backtracking`` on a
+    single homogeneous run (reproduced at 1,000,000 characters of one character) and
+    degrades quadratically before that (2.12 s at 50k, 8.19 s at 100k). Chunking keeps
+    every pass bounded; summing windows slightly over-estimates at the seams, which is
+    the safe direction for a budget check.
+    """
+    if len(text) <= ENCODE_CHUNK_CHARS:
+        try:
+            return len(encoding.encode(text, disallowed_special=()))
+        except (ValueError, RuntimeError):
+            return _chunked_tokens(text, encoding)
+    return _chunked_tokens(text, encoding)
 
 
 def _encoding_tokens(text, encoding):
     # Cheapest conservative size of one serialized unit under either encoding.
-    return max(len(candidate.encode(text, disallowed_special=())) for candidate in encoding)
+    return max(_safe_encode(text, candidate) for candidate in encoding)
 
 
 def _greedy_groups(weights, limit):
@@ -441,10 +476,18 @@ class Strategy:
             # Check prompt-only cost before any paid call or large fragmentation.
             if not fits(stage_request(map_prompt, [], "PARTIAL RESPONSES HISTORY"), reserve=128):
                 raise ValueError("compactor_input_budget_too_small")
+            # pack() sizes groups from per-unit weights against the same capacity, so a
+            # unit admitted only by the real request check could still be unpackable and
+            # fail the whole compaction (adversarial review v2: weight = capacity + 1).
+            # Admission therefore has to clear both tests.
+            overhead_tokens = _request_tokens(stage_request(map_prompt, [], "PARTIAL RESPONSES HISTORY"),
+                                              encoding)
+            capacity_tokens = input_budget - overhead_tokens - 2
             units = []
             for item_index, item in enumerate(items):
                 whole = _json({"source_item_index": item_index, "item": item})
-                if fits(stage_request(map_prompt, [whole], "PARTIAL RESPONSES HISTORY")):
+                if (capacity_tokens > 0 and _encoding_tokens(whole, encoding) + 1 <= capacity_tokens
+                        and fits(stage_request(map_prompt, [whole], "PARTIAL RESPONSES HISTORY"))):
                     units.append(whole)
                     continue
                 split_items += 1
@@ -452,6 +495,7 @@ class Strategy:
                 size = len(serialized)
                 context = {key: item[key] for key in ("type", "role", "name", "call_id", "id")
                            if key in item}
+                density = (_encoding_tokens(serialized, encoding) / float(max(1, size)))
 
                 def fragment(start, end, index, count):
                     return _json({"source_item_index": item_index,
@@ -467,19 +511,25 @@ class Strategy:
                     # Placeholders bound index/count metadata before the final
                     # number of fragments is known. Offsets address exact Unicode
                     # characters in the original serialized item, not decoded text.
-                    low, high, best = start + 1, min(size, start + input_budget * 4), None
-                    while low <= high:
-                        end = (low + high) // 2
-                        candidate = fragment(start, end, size, size)
-                        if fits(stage_request(map_prompt, [candidate], "PARTIAL RESPONSES HISTORY"), reserve=64):
-                            best = end
-                            low = end + 1
-                        else:
-                            high = end - 1
-                    if best is None:
+                    # Boundaries come from one measured token density per item instead of
+                    # a binary search that re-tokenizes every candidate: on a long
+                    # homogeneous run that search was quadratic (50k chars 2.12 s, 100k
+                    # 8.19 s) and raised inside tiktoken around 1M characters. The real
+                    # request check still decides every boundary.
+                    span = max(1, min(size, input_budget * 4))
+                    if density > 0:
+                        affordable = int(max(1, (input_budget - 2048) / density))
+                        span = max(1, min(span, affordable))
+                    end = min(size, start + span)
+                    while end - start > 1 and not fits(
+                            stage_request(map_prompt, [fragment(start, end, size, size)],
+                                          "PARTIAL RESPONSES HISTORY"), reserve=64):
+                        end = start + max(1, (end - start) * 9 // 10)
+                    if not fits(stage_request(map_prompt, [fragment(start, end, size, size)],
+                                              "PARTIAL RESPONSES HISTORY"), reserve=64):
                         raise RuntimeError("compactor_source_metadata_too_large")
-                    parts.append((start, best))
-                    start = best
+                    parts.append((start, end))
+                    start = end
                 fragment_count += len(parts)
                 units.extend(fragment(start, end, index, len(parts))
                              for index, (start, end) in enumerate(parts))

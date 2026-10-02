@@ -149,6 +149,32 @@ class SealedShapeTests(unittest.TestCase):
         self.assertFalse(agent_message_is_opaque(item))
         self.assertIn('PROBE-1', agent_message_text(item))
 
+    def test_ciphertext_without_a_header_counts_as_sealed(self):
+        item = agent_message(parts=[{'type': 'input_text', 'text': FERNET}])
+        self.assertTrue(agent_message_is_opaque(item))
+        self.assertIsNone(agent_message_text(item))
+        notice = agent_sealed_notice(item)
+        self.assertIn('cannot read native encrypted state', notice)
+        self.assertNotIn(FERNET, notice)
+
+    def test_wrapped_ciphertext_counts_as_sealed(self):
+        wrapped = '\n'.join(FERNET[i:i + 64] for i in range(0, len(FERNET), 64))
+        item = agent_message(parts=[{'type': 'input_text', 'text': HEADER + wrapped}])
+        self.assertTrue(agent_message_is_opaque(item))
+        self.assertIsNone(agent_message_text(item))
+        self.assertNotIn(FERNET[:64], agent_sealed_notice(item))
+
+    def test_readable_line_beside_ciphertext_in_one_part_survives(self):
+        # Real shape: one text part holding a readable sentence and a sealed blob.
+        item = agent_message(parts=[{'type': 'input_text',
+                                     'text': HEADER + '结论：预览已验证，未发布。\n' + FERNET}])
+        self.assertTrue(agent_message_is_opaque(item))
+        notice = agent_sealed_notice(item)
+        self.assertIn('预览已验证', notice)
+        self.assertIn('cannot read native encrypted state', notice)
+        self.assertNotIn(FERNET[:64], notice)
+        self.assertIsNone(agent_message_text(item))
+
     def test_notice_keeps_a_readable_body_sitting_next_to_sealed_state(self):
         item = agent_message(parts=[
             {'type': 'encrypted_content', 'encrypted_content': '会议结论：预览已验证，未发布。'},

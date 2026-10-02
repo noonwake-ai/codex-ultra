@@ -28,6 +28,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import threading
 import time
 from collections import OrderedDict
@@ -124,9 +125,19 @@ _CACHE_MISSES = 0
 # while the vision transcription cache next to it already survived restarts.
 TRANSCODE_CACHE_VERSION = 1
 DISK_MAGIC = b'CXUTC1\n'
+# Everything a cached result depends on. A pricey bug came from hashing only the
+# source bytes plus the webp flag: a later call with a different quality (or a
+# different source mime, or after a change to the lossless/lossy thresholds)
+# reused the earlier bytes, so the "cached" frame was not the frame this pipeline
+# would produce. The fingerprint is computed lazily, after the module constants
+# below are defined.
+PIPELINE_CONSTANTS = ('DEFAULT_QUALITY', 'LOSSY_SOURCE_MIN_SAVING', 'MAX_SOURCE_BYTES',
+                      'MAX_PIXELS', 'COLOR_COUNT_CAP', 'WEBP_METHOD', 'ENV_SWITCH')
+_PIPELINE_FINGERPRINT = None
 DISK_MAX_BYTES = 256 * 1024 * 1024
 DISK_TTL_SECONDS = 7 * 24 * 3600
 DISK_PRUNE_EVERY = 64
+ORPHAN_TEMP_SECONDS = 3600
 
 _DISK_DIR = None
 _DISK_MAX_BYTES = DISK_MAX_BYTES
@@ -227,6 +238,18 @@ def _disk_entries():
         yield path, info.st_size, info.st_mtime
 
 
+def _rmtree(path):
+    """Remove a stale cache directory, counting a failure like any other disk error."""
+    global _DISK_ERRORS
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        with _CACHE_LOCK:
+            _DISK_ERRORS += 1
+
+
 def _unlink(path):
     global _DISK_ERRORS
     try:
@@ -239,8 +262,33 @@ def _unlink(path):
 
 
 def _disk_prune(now=None):
-    """Drop expired entries, then the oldest until the byte limit is met."""
+    """Drop expired entries, then the oldest until the byte limit is met.
+
+    Also sweeps two kinds of leftovers the byte limit does not count: temporary files
+    abandoned by a writer that died mid-publish (only ever live for milliseconds in
+    the happy path, so an hour is safely stale), and cache directories from an older
+    envelope version, which would otherwise keep their bytes forever after a bump.
+    """
     now = time.time() if now is None else now
+    if _DISK_DIR:
+        try:
+            base = os.path.join(_DISK_DIR, _disk_subdir())
+            current = _disk_subdir()
+            for name in os.listdir(_DISK_DIR):
+                if not name.startswith('v') or name == current:
+                    continue
+                _rmtree(os.path.join(_DISK_DIR, name))
+            for name in os.listdir(base):
+                if not name.endswith('.tmp'):
+                    continue
+                path = os.path.join(base, name)
+                try:
+                    if now - os.stat(path).st_mtime > ORPHAN_TEMP_SECONDS:
+                        _unlink(path)
+                except OSError:
+                    continue
+        except OSError:
+            pass
     entries = sorted(_disk_entries(), key=lambda entry: entry[2])
     if not entries:
         return
@@ -277,6 +325,10 @@ def _disk_get(key):
             return None
         if meta.get('url_bytes') != len(payload):
             raise ValueError('truncated')
+        if meta.get('sha256') and meta['sha256'] != hashlib.sha256(payload).hexdigest():
+            # A half-written or externally damaged entry must never be handed to a
+            # model as the frame it was shown.
+            raise ValueError('digest_mismatch')
         value = (payload.decode('utf-8'), meta.get('decision'), int(meta.get('after') or 0))
         source_bytes = int(meta.get('source_bytes') or 0)
     except FileNotFoundError:
@@ -304,9 +356,13 @@ def _disk_put(key, value, source_bytes):
     encoded = url.encode('utf-8')
     header = json.dumps({'v': TRANSCODE_CACHE_VERSION, 'key': key, 'decision': decision,
                          'after': after, 'url_bytes': len(encoded),
+                         'sha256': hashlib.sha256(encoded).hexdigest(),
                          'source_bytes': int(source_bytes or 0)},
                         separators=(',', ':')).encode('utf-8')
-    temporary = path + '.tmp'
+    # Unique per writer: two processes compacting at the same time used to share one
+    # ``<entry>.tmp`` name, so one writer could publish bytes the other was still
+    # writing (measured as a same-length mixed payload that was then accepted).
+    temporary = '%s.%d.%d.tmp' % (path, os.getpid(), threading.get_ident())
     try:
         with open(temporary, 'wb') as handle:
             handle.write(DISK_MAGIC + header + b'\n' + encoded)
@@ -537,6 +593,27 @@ def _mean_abs_error(a, b):
     return sum(channels) / len(channels)
 
 
+def pipeline_fingerprint():
+    """Stable digest of every module constant a transcoded result depends on."""
+    global _PIPELINE_FINGERPRINT
+    if _PIPELINE_FINGERPRINT is None:
+        parts = []
+        for name in PIPELINE_CONSTANTS:
+            parts.append('%s=%r' % (name, globals().get(name)))
+        parts.append('pillow=%s' % getattr(Image, '__version__', 'none'))
+        _PIPELINE_FINGERPRINT = hashlib.sha256(
+            ','.join(parts).encode('utf-8')).hexdigest()[:16]
+    return _PIPELINE_FINGERPRINT
+
+
+def cache_key(raw, mime, quality, use_webp):
+    """Identity of one transcoded frame: source bytes plus the pipeline that made it."""
+    prefix = 'v%d|q:%s|mime:%s|webp:%d|pipe:%s|' % (
+        TRANSCODE_CACHE_VERSION, quality, mime, 1 if use_webp else 0,
+        pipeline_fingerprint())
+    return hashlib.sha256(prefix.encode('utf-8') + raw).hexdigest()
+
+
 def transcode_image_url(url, quality=DEFAULT_QUALITY, webp=None, skips=None):
     """Return ``(new_url, decision, raw_before, raw_after)``.
 
@@ -559,9 +636,7 @@ def transcode_image_url(url, quality=DEFAULT_QUALITY, webp=None, skips=None):
     size = len(raw)
     if size > MAX_SOURCE_BYTES:
         return url, 'too_large', size, size
-    # The decision depends on whether WebP candidates are allowed, so the flag is
-    # part of the cache identity.
-    key = hashlib.sha256((b'webp:' + (b'1' if use_webp else b'0') + b'|' + raw)).hexdigest()
+    key = cache_key(raw, mime, quality, use_webp)
     cached = _cache_get(key)
     if cached is not None:
         new_url, decision, after = cached

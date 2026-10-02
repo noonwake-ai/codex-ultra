@@ -12,7 +12,7 @@ Kimi and GLM into Codex and use them like native models.
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-279%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-288%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -129,7 +129,7 @@ Full details in [install](docs/INSTALL.md).
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-279 offline tests, no paid requests. Covers compaction handoff, encrypted
+288 offline tests, no paid requests. Covers compaction handoff, encrypted
 checkpoints across restarts, tamper refusal, image pairing, gateway failures,
 catalog policy, endpoint rewrite and rollback. CI runs 3.11 / 3.12 / 3.13.
 
@@ -170,6 +170,29 @@ this service's own configured route, and rewriting could overwrite bytes its ups
 still read.
 
 See `test_agent_messages.py` (32 tests).
+</details>
+
+<details><summary><b>Will an image-heavy thread blow up the next upload after compaction?</b></summary>
+
+It could, so there is a guard now. The checkpoint travels back on every following turn, and
+with a long image history it can be larger than the upload limit — the client can compact
+and then never send another message. The adapter now sizes the checkpoint before handing it
+back: the pixel-preserving transcoder first, then (only as far as needed) the oldest frames
+become vision transcriptions — the same trade and the same re-read path the byte budget
+already uses. If it still does not fit it raises, and the client keeps its original history
+instead of receiving a checkpoint it can never upload. Default cap: 24 MiB, tune with
+`compaction_checkpoint_bytes`, set 0 to disable.
+
+</details>
+
+<details><summary><b>Can the transcode cache hand me someone else's frame?</b></summary>
+
+Not any more. Cache identity grew from "source bytes + webp allowed" to "source bytes +
+quality + source MIME + pipeline fingerprint"; entries carry a content digest that is
+verified on read, and writes use a process/thread-scoped temporary name (two processes used
+to share one `.tmp` name and could publish each other's bytes). Stale version directories and
+orphan temporaries are swept during pruning.
+
 </details>
 
 <details><summary><b>Why use the full context window by default?</b></summary>

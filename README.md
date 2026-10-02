@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-279%20offline-brightgreen.svg?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/Tests-288%20offline-brightgreen.svg?style=flat-square)](#测试)
 
 [English](README.en.md) · [交给 AI 安装](docs/ai-install.md) · [手动安装](docs/INSTALL.md) · [模型能力表](docs/MODELS.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
 
@@ -125,7 +125,7 @@ python3 install.py --upstream https://你的网关/v1 \
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-279 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
+288 项离线测试，不发付费请求。覆盖压缩接续、加密检查点跨重启、防篡改、图片配对、
 网关失败、目录策略、端点改写与回滚。CI 跑 Python 3.11 / 3.12 / 3.13。
 
 ---
@@ -160,6 +160,24 @@ python3 -m unittest discover -s . -p 'test_*.py'
   覆盖掉它上游还读得到的字节；这里只内联可读正文。
 
 回归见 `test_agent_messages.py`（32 项）。
+</details>
+
+<details><summary><b>图片很多的对话，压缩后会不会撑爆下一次上传？</b></summary>
+
+会，所以现在有护栏。检查点会跟着之后每一轮请求回传，图片历史多的时候它可能比上传上限还大——客户端
+能压缩、却再也发不出下一条消息。适配层在把检查点交回去之前先做尺寸核算：先用像素无损的转码压，
+不够再按需要把最旧的几帧换成视觉转写（和字节预算同一套取舍、同一套回读路径），仍然装不下就直接
+报错，让客户端保留原历史，而不是收下一个永远传不上去的检查点。默认上限 24 MiB，可用
+`compaction_checkpoint_bytes` 调整，设为 0 关闭。
+
+</details>
+
+<details><summary><b>转码缓存会不会把别的图当成我的图？</b></summary>
+
+现在不会了。缓存身份从"源字节 + 是否允许 WebP"扩成"源字节 + 质量档 + 源 MIME + 流水线指纹"，
+落盘时记录内容摘要、读回时校验，写入用带进程/线程后缀的临时名（以前两个进程共用一个 `.tmp`
+名，可能互相覆盖出混合内容）。旧版本目录与孤儿临时文件会在清理时一并收掉。
+
 </details>
 
 <details><summary><b>为什么默认用满上下文窗口？</b></summary>

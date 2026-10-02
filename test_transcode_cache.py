@@ -14,13 +14,18 @@ import os
 import secrets
 import shutil
 import tempfile
+import time
 import unittest
 
 import media_transcode
 from test_media_layer import photo_png
 
 PNG, _ = photo_png(256)
-SOURCE_KEY = hashlib.sha256(b'webp:1|' + PNG).hexdigest()
+# Derived from the module, not re-implemented here: the key gained the quality,
+# source mime and a pipeline fingerprint after an earlier version let a q40 call
+# reuse a q85 result (adversarial review v2).
+SOURCE_KEY = media_transcode.cache_key(PNG, 'image/png',
+                                       media_transcode.DEFAULT_QUALITY, True)
 
 
 def data_url(payload, mime='image/png'):
@@ -97,6 +102,56 @@ class DiskCacheTests(unittest.TestCase):
         media_transcode._disk_prune()
         base = os.path.dirname(entry_path(self.dir))
         self.assertEqual([n for n in os.listdir(base) if n.endswith('.tc')], [])
+
+    def test_a_different_quality_or_mime_is_a_different_entry(self):
+        # A q40 request used to reuse the q85 result because only the source bytes and
+        # the webp flag were hashed: the cached frame was not the frame this pipeline
+        # would produce.
+        base = media_transcode.cache_key(PNG, 'image/png', 85, True)
+        self.assertNotEqual(base, media_transcode.cache_key(PNG, 'image/png', 40, True))
+        self.assertNotEqual(base, media_transcode.cache_key(PNG, 'image/jpeg', 85, True))
+        self.assertNotEqual(base, media_transcode.cache_key(PNG, 'image/png', 85, False))
+        before = media_transcode.pipeline_fingerprint()
+        media_transcode._PIPELINE_FINGERPRINT = None
+        media_transcode.LOSSY_SOURCE_MIN_SAVING = 0.99
+        try:
+            self.assertNotEqual(before, media_transcode.pipeline_fingerprint())
+            self.assertNotEqual(base, media_transcode.cache_key(PNG, 'image/png', 85, True))
+        finally:
+            media_transcode.LOSSY_SOURCE_MIN_SAVING = 0.25
+            media_transcode._PIPELINE_FINGERPRINT = None
+        self.assertEqual(before, media_transcode.pipeline_fingerprint())
+
+    def test_a_tampered_payload_is_a_miss_and_is_counted(self):
+        self.transcode()
+        path = entry_path(self.dir)
+        with open(path, 'rb') as handle:
+            raw = handle.read()
+        header, _, _ = raw[len(media_transcode.DISK_MAGIC):].partition(b'\n')
+        envelope = json.loads(header.decode())
+        payload = base64.b64encode(b'not the frame that was cached').decode().encode()
+        envelope['url_bytes'] = len(payload)
+        with open(path, 'wb') as handle:
+            handle.write(media_transcode.DISK_MAGIC
+                         + json.dumps(envelope).encode() + b'\n' + payload)
+        media_transcode.cache_clear()
+        _, decision, _, _ = self.transcode()
+        self.assertNotIn(decision, ('not_image', 'no_pillow'))
+        self.assertGreaterEqual(media_transcode.cache_info()['disk_errors'], 1)
+
+    def test_prune_sweeps_orphan_temps_and_old_version_directories(self):
+        self.transcode()
+        base = os.path.dirname(entry_path(self.dir))
+        orphan = os.path.join(base, 'deadbeef.tc.999.1.tmp')
+        with open(orphan, 'wb') as handle:
+            handle.write(b'x')
+        old_version = os.path.join(self.dir, 'transcode', 'v0')
+        os.makedirs(old_version, exist_ok=True)
+        with open(os.path.join(old_version, 'stale.tc'), 'wb') as handle:
+            handle.write(b'y')
+        media_transcode._disk_prune(now=time.time() + 2 * media_transcode.ORPHAN_TEMP_SECONDS)
+        self.assertFalse(os.path.exists(orphan))
+        self.assertFalse(os.path.exists(old_version))
 
     def test_clear_with_disk_removes_entries(self):
         self.transcode()

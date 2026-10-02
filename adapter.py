@@ -1,7 +1,7 @@
 """Loopback Responses adapter; B handoff, encrypted self-contained checkpoints.
 No request/response content is logged. Native exports are cached encrypted only.
 """
-import argparse, base64, gzip, hashlib, hmac, io, json, math, os, secrets, sqlite3
+import argparse, base64, gzip, hashlib, hmac, io, json, math, os, re, secrets, sqlite3
 import subprocess, threading, time, uuid
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -170,17 +170,40 @@ _AGENT_B64_ALPHABET = frozenset(
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-')
 
 
+_AGENT_B64_IGNORED = frozenset(' \t\r\n')
+
+
 def agent_payload_is_opaque(value):
     """Whether a payload part is opaque state rather than readable message text."""
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value.strip():
         return False
-    if value.startswith(AGENT_OPAQUE_PREFIX):
+    candidate = value.strip()
+    # Whitespace is ignored: a wrapped or pretty-printed token is still a token, and an
+    # earlier version pasted those into the prompt as if they were prose.
+    body = [ch for ch in candidate if ch not in _AGENT_B64_IGNORED]
+    if candidate.startswith(AGENT_OPAQUE_PREFIX):
         # A real Fernet token is pure base64url; prose that merely starts with the
         # prefix stays readable rather than being dropped as ciphertext.
-        return all(ch in _AGENT_B64_ALPHABET for ch in value)
-    if len(value) < AGENT_OPAQUE_MIN:
+        return all(ch in _AGENT_B64_ALPHABET for ch in body)
+    if len(body) < AGENT_OPAQUE_MIN:
         return False
-    return all(ch in _AGENT_B64_ALPHABET for ch in value)
+    return all(ch in _AGENT_B64_ALPHABET for ch in body)
+
+
+def agent_sealed_run(text):
+    """Offset in ``text`` where a sealed run starts, or -1 when there is none.
+
+    One part can hold a readable line *and* a sealed blob (observed shape), and a
+    sealed blob can arrive without the ``Message Type:`` header at all. Either way the
+    ciphertext must not be inlined as prose, and the readable prefix must survive.
+    """
+    if not isinstance(text, str) or not text:
+        return -1
+    for match in re.finditer(r'[A-Za-z0-9+/=_.-]{64,}', text):
+        candidate = match.group(0)
+        if agent_payload_is_opaque(candidate):
+            return match.start()
+    return -1
 
 
 def agent_message_body(text):
@@ -214,9 +237,9 @@ def agent_message_text(item):
             text = part.get('text')
             if not isinstance(text, str) or not text:
                 continue
-            if text.startswith(('Message Type:', 'Message Type：')) and agent_payload_is_opaque(
-                    agent_message_body(text)):
-                # The header is readable but the body behind it is sealed in this same part.
+            if agent_sealed_run(agent_message_body(text)) != -1:
+                # The readable part stays readable only through the notice; the sealed
+                # run behind it must never be inlined as prose.
                 return None
             chunks.append(text)
         elif kind == 'encrypted_content':
@@ -262,8 +285,7 @@ def agent_message_is_opaque(item):
             text = part.get('text')
             if not isinstance(text, str) or not text:
                 continue
-            if text.startswith(('Message Type:', 'Message Type：')) and agent_payload_is_opaque(
-                    agent_message_body(text)):
+            if agent_sealed_run(text) != -1:
                 return True
     return False
 
@@ -295,15 +317,11 @@ def agent_sealed_notice(item):
                 text = part.get('text')
                 if not isinstance(text, str) or not text.strip():
                     continue
-                body = agent_message_body(text)
-                if (text.startswith(('Message Type:', 'Message Type：'))
-                        and agent_payload_is_opaque(body)):
-                    # Keep the header, drop the sealed tail: a notice must never
+                run = agent_sealed_run(text)
+                if run != -1:
+                    # Keep everything before the sealed run, drop it: a notice must never
                     # forward ciphertext into the prompt.
-                    marker = 'Payload:'
-                    index = text.find(marker)
-                    readable.append(text[:index + len(marker)].strip() if index != -1
-                                    else text.strip())
+                    readable.append(text[:run].strip())
                 else:
                     readable.append(text.strip())
             elif part.get('type') == 'encrypted_content':
@@ -487,6 +505,11 @@ class Adapter:
     media_budget_bytes=4*1024*1024
     media_keep_bytes=2*1024*1024
     media_max_image_bytes=2*1024*1024
+    # The checkpoint travels back on every following turn, so it has to fit the same
+    # request limit the client uploads through. Open-source users have no media cap
+    # configured, so the safe default is on (24 MiB of sealed checkpoint; the private
+    # edition uses the same number).
+    compaction_checkpoint_bytes=24*1024*1024
     media_min_replace_bytes=512
     media_protect_recent_items=1
     media_budget_deadline_seconds=120.0
@@ -572,6 +595,8 @@ class Adapter:
         self.media_budget_enabled=bool(cfg.get('media_budget_enabled',False))
         self.media_budget_bytes=int(cfg.get('media_budget_bytes',4*1024*1024))
         self.media_keep_bytes=int(cfg.get('media_keep_bytes',2*1024*1024))
+        self.compaction_checkpoint_bytes=int(
+            cfg.get('compaction_checkpoint_bytes',24*1024*1024))
         # Only a provider-safety threshold: a single image bigger than this is a
         # candidate for replacement even when the request is inside its budget.
         self.media_max_image_bytes=int(cfg.get('media_max_image_bytes',2*1024*1024))
@@ -761,6 +786,53 @@ class Adapter:
         nonce = secrets.token_bytes(12)
         raw = json.dumps(obj,ensure_ascii=False,separators=(',',':')).encode()
         return self.prefix + base64.urlsafe_b64encode(nonce+self.cipher.encrypt(nonce,raw,self.aad)).decode()
+
+    def seal_checkpoint(self, summary, retained):
+        """Seal a checkpoint the *next* request is guaranteed to be able to send.
+
+        The compaction result travels back on every following turn, so a checkpoint
+        built from a large media history could produce a follow-up request this
+        service itself refuses, leaving a client that can compact but can never
+        continue (adversarial review v2, F01: 48 screenshots sealed to 88.34 MB
+        against a 64 MiB request limit). The invariant is enforced before the
+        checkpoint is returned, with two levers in order: the pixel-preserving
+        transcoder, then -- only as far as needed -- the same transcription trade the
+        byte budget already makes, with the same re-read path. If it still cannot fit
+        this raises, and the client keeps its original history instead of receiving a
+        checkpoint it can never upload.
+        """
+        retained, originals, originals_complete = self.transcode_media(retained)
+        cap = int(getattr(self, 'compaction_checkpoint_bytes', 0) or 0)
+        sealed = self.seal({'version': 2, 'summary': summary, 'retained': retained})
+        attempts = 0
+        while cap > 0 and len(sealed) > cap and attempts < 2:
+            attempts += 1
+            shortfall = len(sealed) - cap
+            media = media_budget.total_bytes(retained)
+            if media <= 0:
+                break
+            # The sealed blob is base64 of the encrypted JSON, so one payload byte is
+            # about 4/3 sealed bytes. Sizing by the ratio measured on *this* checkpoint
+            # keeps the pixels that fit; under-removing is the safe direction because
+            # the loop re-seals and a checkpoint that still does not fit raises.
+            ratio = len(sealed) / float(max(1, media))
+            target = max(0, int(media - shortfall / max(ratio, 1.0)))
+            keep = max(0, min(self.media_keep_bytes, media // 4))
+            retained, stats = media_budget.apply_budget(
+                retained, self.media_store, self.transcribe_image, target, keep,
+                max_image_bytes=self.media_max_image_bytes,
+                workers=self.media_transcribe_workers,
+                min_replace_bytes=self.media_min_replace_bytes,
+                protect_items=self.media_protect_recent_items,
+                deadline_seconds=self.media_budget_deadline_seconds,
+                source='checkpoint', originals=originals,
+                originals_required=originals_complete)
+            self.publish_budget(stats, 'checkpoint')
+            sealed = self.seal({'version': 2, 'summary': summary, 'retained': retained})
+        if cap > 0 and len(sealed) > cap:
+            self.note_media_failure('checkpoint_too_large')
+            raise RuntimeError('compaction_checkpoint_too_large')
+        return sealed
 
     def open(self, value):
         try:
@@ -1274,8 +1346,9 @@ class Adapter:
                    if self.cfg.get('compactor_map_workers') else {})})
             token=self.credential()
             if token in result['summary']:raise ValueError('secret_in_checkpoint')
+            sealed=self.seal_checkpoint(result['summary'],retained)
             item={'type':'compaction','id':'cmp_'+uuid.uuid4().hex,
-                  'encrypted_content':self.seal({'version':2,'summary':result['summary'],'retained':retained})}
+                  'encrypted_content':sealed}
             with self.lock:
                 self.stats['last_compaction_plan']={key:result['metadata'].get(key) for key in
                     ('strategy_version','input_token_budget','source_request_tokens_estimate',
