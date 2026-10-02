@@ -12,7 +12,7 @@ Kimi and GLM into Codex and use them like native models.
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-241%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-250%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

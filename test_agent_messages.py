@@ -1,32 +1,46 @@
 """Inter-agent message delivery on routed third-party providers.
 
-A team message reaches the model as an ``agent_message`` item whose body is a content
-part typed ``encrypted_content``. Native Responses routes decode that part; a routed
-provider only understands plain message text, so the header ("Message Type: NEW_TASK
-... Payload:") arrived while the body was dropped, and the receiving agent answered
-"no task payload". Observed on the live route: every child of a third-party-model
-thread reported an empty assignment, while the same spawn on an OpenAI-model thread
-worked. These tests pin the local rewrite that delivers the readable body as text.
+A team message reaches the model as an ``agent_message`` item. Real traffic uses two
+shapes, and both are dropped by a routed provider that only understands plain text:
+
+* ``input_text`` header + body in an ``encrypted_content`` part (a new task), and
+* ``input_text`` header + body in the *same* text part (a child's final answer).
+
+Native Responses routes decode the body either way; a routed provider forwards neither,
+so the receiving agent answered "no task payload" and a parent never saw a child's
+answer. Observed on the live route: every child of a third-party-model thread reported an
+empty assignment, while the same spawn on an OpenAI-model thread worked. These tests pin
+the local rewrite that delivers a readable body as ordinary message text.
 """
+import json
 import unittest
 
-from adapter import (agent_message_text, agent_payload_is_opaque, inline_agent_messages)
+from adapter import (agent_message_body, agent_message_text, agent_payload_is_opaque,
+                     inline_agent_messages)
 from test_upstream_upload import body_of, make, post
 
 HEADER = 'Message Type: NEW_TASK\nTask name: /root/probe\nSender: /root\nPayload:\n'
+ANSWER_HEADER = 'Message Type: FINAL_ANSWER\nTask name: /root\nSender: /root/probe\nPayload:\n'
 FERNET = 'gAAAAABqv0aV' + 'A' * 240
 LONG_BASE64 = 'QmFzZTY0' * 100
 LONG_CJK = '这是一条没有任何空格的长中文载荷用来确认不会被误判成不透明状态' * 40
+FERNET_PROSE = 'gAAAAABqv0aV is what my config prints; is that a Fernet token?'
 
 
-def agent_message(body=None, parts=None, header=HEADER):
+def agent_message(body=None, parts=None, header=HEADER, author='/root', recipient='/root/probe'):
     content = [{'type': 'input_text', 'text': header}]
     if parts is None:
         content.append({'type': 'encrypted_content', 'encrypted_content': body})
     else:
         content.extend(parts)
-    return {'type': 'agent_message', 'id': 'amsg_1', 'author': '/root',
-            'recipient': '/root/probe', 'content': content}
+    return {'type': 'agent_message', 'id': 'amsg_1', 'author': author,
+            'recipient': recipient, 'content': content}
+
+
+def inline_answer(text, header=ANSWER_HEADER):
+    """A message whose body travels inside the text part, as real traffic sends it."""
+    return agent_message(parts=[{'type': 'input_text', 'text': header + text}],
+                         author='/root/probe', recipient='/root')
 
 
 def user(text):
@@ -39,11 +53,25 @@ class PayloadReadingTests(unittest.TestCase):
         self.assertIn('NEW_TASK', text)
         self.assertIn('PROBE-9M4X', text)
 
+    def test_text_only_message_is_readable(self):
+        text = agent_message_text(inline_answer('子代理的结论：一切正常'))
+        self.assertIn('FINAL_ANSWER', text)
+        self.assertIn('一切正常', text)
+
+    def test_body_after_header_is_extracted(self):
+        self.assertEqual(agent_message_body(HEADER + '正文'), '正文')
+        self.assertEqual(agent_message_body(HEADER), '')
+        self.assertEqual(agent_message_body('没有标题'), '没有标题')
+
     def test_fernet_blob_is_opaque(self):
         self.assertTrue(agent_payload_is_opaque(FERNET))
 
     def test_long_base64_blob_is_opaque(self):
         self.assertTrue(agent_payload_is_opaque(LONG_BASE64))
+
+    def test_prose_starting_with_fernet_prefix_is_readable(self):
+        self.assertFalse(agent_payload_is_opaque(FERNET_PROSE))
+        self.assertIsNotNone(agent_message_text(agent_message(FERNET_PROSE)))
 
     def test_long_body_without_spaces_is_still_text(self):
         self.assertFalse(agent_payload_is_opaque(LONG_CJK))
@@ -55,9 +83,8 @@ class PayloadReadingTests(unittest.TestCase):
     def test_header_only_message_has_no_body(self):
         self.assertIsNone(agent_message_text(agent_message(parts=[])))
 
-    def test_inline_text_message_is_not_a_payload_rewrite(self):
-        item = agent_message(parts=[{'type': 'input_text', 'text': '已经内联的正文'}])
-        self.assertIsNone(agent_message_text(item))
+    def test_message_without_content_is_ignored(self):
+        self.assertIsNone(agent_message_text({'type': 'agent_message', 'id': 'amsg_2'}))
 
 
 class InlineTests(unittest.TestCase):
@@ -67,8 +94,13 @@ class InlineTests(unittest.TestCase):
         self.assertEqual([i['type'] for i in out], ['message', 'message', 'message'])
         self.assertEqual(out[1]['role'], 'user')
         self.assertIn('正文甲', out[1]['content'][0]['text'])
-        self.assertEqual(out[0] is items[0], True)
-        self.assertEqual(out[2] is items[2], True)
+        self.assertIs(out[0], items[0])
+        self.assertIs(out[2], items[2])
+
+    def test_text_only_message_becomes_user_text(self):
+        out = inline_agent_messages([inline_answer('结论已交付')])
+        self.assertEqual(out[0]['type'], 'message')
+        self.assertIn('结论已交付', out[0]['content'][0]['text'])
 
     def test_untouched_list_is_returned_identical(self):
         items = [user('只有普通消息')]
@@ -78,6 +110,15 @@ class InlineTests(unittest.TestCase):
         item = agent_message(FERNET)
         out = inline_agent_messages([item])
         self.assertIs(out[0], item)
+
+    def test_counters_report_inlined_and_left_alone(self):
+        counters = {}
+        inline_agent_messages([agent_message('正文'), agent_message(FERNET),
+                               inline_answer('结论')], counters)
+        self.assertEqual(counters, {'inlined': 2, 'left_alone': 1})
+
+    def test_counters_are_optional(self):
+        self.assertIsNotNone(inline_agent_messages([agent_message('正文')], None))
 
     def test_non_list_input_is_returned_unchanged(self):
         self.assertEqual(inline_agent_messages(None), None)
@@ -102,6 +143,14 @@ class ForwardedWireTests(unittest.TestCase):
         self.assertEqual(delivered['role'], 'user')
         self.assertIn('PROBE-9M4X', delivered['content'][0]['text'])
 
+    def test_text_only_team_message_reaches_the_upstream_as_text(self):
+        response = post(self.server, {'model': 'deepseek-flash', 'stream': False,
+                                      'input': [inline_answer('子代理的结论'), user('继续')]})
+        self.assertEqual(response.status_code, 200)
+        forwarded = self.forwarded()
+        self.assertNotIn('agent_message', [i.get('type') for i in forwarded['input']])
+        self.assertIn('子代理的结论', forwarded['input'][0]['content'][0]['text'])
+
     def test_opaque_team_message_keeps_its_wire_shape(self):
         response = post(self.server, {'model': 'deepseek-flash', 'stream': False,
                                       'input': [agent_message(FERNET), user('继续')]})
@@ -109,6 +158,39 @@ class ForwardedWireTests(unittest.TestCase):
         forwarded = self.forwarded()
         self.assertEqual(forwarded['input'][0]['type'], 'agent_message')
         self.assertEqual(forwarded['input'][0]['content'][1]['encrypted_content'], FERNET)
+
+    def test_delivery_is_counted(self):
+        post(self.server, {'model': 'deepseek-flash', 'stream': False,
+                           'input': [agent_message('正文'), inline_answer('结论')]})
+        self.assertEqual(self.adapter.stats.get('agent_messages_inlined'), 2)
+        self.assertIsNone(self.adapter.stats.get('agent_messages_left_alone'))
+
+
+class RecordingStrategy:
+    """Captures the evidence the compactor is asked to summarise."""
+
+    def __init__(self):
+        self.evidence = None
+
+    def compact(self, evidence, client, options):
+        self.evidence = evidence
+        return {'summary': 'summary body', 'metadata': {'strategy_version': 'test'}}
+
+
+class CompactPathTests(unittest.TestCase):
+    def test_compaction_evidence_carries_the_team_message_text(self):
+        adapter, transport, server = make()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        adapter.strategy = RecordingStrategy()
+        body = {'model': 'deepseek-flash',
+                'input': [agent_message('压缩前必须看到的正文'), inline_answer('压缩前的结论')]}
+        item, _ = adapter.compact(body, {})
+        self.assertEqual(item['type'], 'compaction')
+        evidence = json.dumps(adapter.strategy.evidence, ensure_ascii=False)
+        self.assertIn('压缩前必须看到的正文', evidence)
+        self.assertIn('压缩前的结论', evidence)
+        self.assertNotIn('agent_message', evidence)
 
 
 if __name__ == '__main__':

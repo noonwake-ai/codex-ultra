@@ -165,10 +165,21 @@ def agent_payload_is_opaque(value):
     if not isinstance(value, str) or not value:
         return False
     if value.startswith(AGENT_OPAQUE_PREFIX):
-        return True
+        # A real Fernet token is pure base64url; prose that merely starts with the
+        # prefix stays readable rather than being dropped as ciphertext.
+        return all(ch in _AGENT_B64_ALPHABET for ch in value)
     if len(value) < AGENT_OPAQUE_MIN:
         return False
     return all(ch in _AGENT_B64_ALPHABET for ch in value)
+
+
+def agent_message_body(text):
+    """Return the text that follows a message header, when the body travels inline."""
+    marker = 'Payload:'
+    index = text.find(marker)
+    if index == -1:
+        return text.strip()
+    return text[index + len(marker):].strip()
 
 
 def agent_message_text(item):
@@ -199,17 +210,23 @@ def agent_message_text(item):
                 return None
             chunks.append(body)
             readable = True
-    if not readable:
-        return None
     text = ''.join(chunks).strip()
-    return text or None
+    if not text:
+        return None
+    # A message whose body travels inline keeps header and body in one text part, so
+    # readable text is not limited to the encrypted_content branch.
+    if not readable and not agent_message_body(text):
+        return None
+    return text
 
 
-def inline_agent_messages(items):
+def inline_agent_messages(items, counters=None):
     """Deliver readable inter-agent messages as plain message text, in place order.
 
     The original list is returned when nothing needed conversion, which keeps the
     no-mutation contract for every request that carries no readable team message.
+    ``counters`` is an optional dict which receives how many messages were delivered
+    and how many were left alone, so a silent non-delivery stays observable.
     """
     if not isinstance(items, list):
         return items
@@ -222,7 +239,11 @@ def inline_agent_messages(items):
                 result.append({'type': 'message', 'role': 'user',
                                'content': [{'type': 'input_text', 'text': text}]})
                 changed = True
+                if counters is not None:
+                    counters['inlined'] = counters.get('inlined', 0) + 1
                 continue
+            if counters is not None:
+                counters['left_alone'] = counters.get('left_alone', 0) + 1
         result.append(item)
     return result if changed else items
 
@@ -864,6 +885,16 @@ class Adapter:
                     self.stats[key]=self.stats.get(key,0)+value
                 self.stats['media_transcribe_workers']=self.media_transcribe_workers
 
+    def note_agent_messages(self, counters):
+        """Publish how many team messages were delivered vs left as opaque state."""
+        if not counters:
+            return
+        with self.lock:
+            for key, value in (('agent_messages_inlined', counters.get('inlined', 0)),
+                               ('agent_messages_left_alone', counters.get('left_alone', 0))):
+                if value:
+                    self.stats[key] = self.stats.get(key, 0) + value
+
     def prepare_forward(self, body, headers=None):
         """Prepare normal Responses input without mutating its original history.
 
@@ -886,7 +917,9 @@ class Adapter:
             prepared=body
             expanded=self.expand(items,model,headers=headers)
         # Routed providers cannot read an agent message body; deliver it as text.
-        expanded=inline_agent_messages(expanded)
+        agent_message_counters={}
+        expanded=inline_agent_messages(expanded,agent_message_counters)
+        self.note_agent_messages(agent_message_counters)
         # The byte layer runs after every protocol adaptation and before the request
         # leaves the machine: the two layers address different costs (tokens vs
         # bytes) and neither may change what the model is *asked*.
@@ -1075,7 +1108,9 @@ class Adapter:
     def compact(self, body, headers):
         raw_items=body.get('input',[])
         items=self.expand(raw_items,body.get('model',''),True,headers)
-        items=inline_agent_messages(items)
+        agent_message_counters={}
+        items=inline_agent_messages(items,agent_message_counters)
+        self.note_agent_messages(agent_message_counters)
         self.observe_request('compact',body,raw_items,items)
         if not self.compaction_slots.acquire(blocking=False): raise RuntimeError('compaction_busy_retry_later')
         try:
