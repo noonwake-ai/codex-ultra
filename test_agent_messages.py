@@ -15,9 +15,9 @@ the local rewrite that delivers a readable body as ordinary message text.
 import json
 import unittest
 
-from adapter import (agent_message_body, agent_message_text, agent_payload_is_opaque,
-                     inline_agent_messages)
-from test_upstream_upload import body_of, make, post
+from adapter import (agent_message_body, agent_message_is_opaque, agent_message_text,
+                     agent_payload_is_opaque, inline_agent_messages)
+from test_upstream_upload import FakeResponse, SSE_200, body_of, make, post
 
 HEADER = 'Message Type: NEW_TASK\nTask name: /root/probe\nSender: /root\nPayload:\n'
 ANSWER_HEADER = 'Message Type: FINAL_ANSWER\nTask name: /root\nSender: /root/probe\nPayload:\n'
@@ -115,7 +115,14 @@ class InlineTests(unittest.TestCase):
         counters = {}
         inline_agent_messages([agent_message('正文'), agent_message(FERNET),
                                inline_answer('结论')], counters)
-        self.assertEqual(counters, {'inlined': 2, 'left_alone': 1})
+        self.assertEqual(counters, {'inlined': 2, 'left_alone': 1, 'left_opaque': 1})
+
+    def test_opaque_and_unreadable_are_told_apart(self):
+        counters = {}
+        inline_agent_messages([agent_message(FERNET), agent_message(parts=[])], counters)
+        self.assertEqual(counters, {'left_alone': 2, 'left_opaque': 1, 'left_unreadable': 1})
+        self.assertTrue(agent_message_is_opaque(agent_message(FERNET)))
+        self.assertFalse(agent_message_is_opaque(agent_message(parts=[])))
 
     def test_counters_are_optional(self):
         self.assertIsNotNone(inline_agent_messages([agent_message('正文')], None))
@@ -163,7 +170,27 @@ class ForwardedWireTests(unittest.TestCase):
         post(self.server, {'model': 'deepseek-flash', 'stream': False,
                            'input': [agent_message('正文'), inline_answer('结论')]})
         self.assertEqual(self.adapter.stats.get('agent_messages_inlined'), 2)
-        self.assertIsNone(self.adapter.stats.get('agent_messages_left_alone'))
+        # A zero must be published too, so a "must be 0" monitor cannot pass by absence.
+        self.assertEqual(self.adapter.stats.get('agent_messages_left_alone'), 0)
+
+    def test_native_model_routes_also_get_text_delivery(self):
+        """Deliberate: the rewrite is not gated on the model name.
+
+        A ``gpt-*`` id is not proof that the upstream decodes Responses items — the same
+        id can be relayed to a third-party upstream that drops them. Inlining on every
+        route keeps the body reachable; only the item shape the model sees changes.
+        """
+        adapter, transport, server = make(responses=[FakeResponse(200, SSE_200)] * 2)
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        for model in ('gpt-6.1-sol', 'gpt-6-sol'):
+            with self.subTest(model=model):
+                response = post(server, {'model': model, 'stream': False,
+                                         'input': [inline_answer('原生路由也要送达')]})
+                self.assertEqual(response.status_code, 200)
+                forwarded = body_of(transport.calls[-1])
+                self.assertNotIn('agent_message', [i.get('type') for i in forwarded['input']])
+                self.assertIn('原生路由也要送达', forwarded['input'][0]['content'][0]['text'])
 
 
 class RecordingStrategy:

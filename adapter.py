@@ -220,6 +220,15 @@ def agent_message_text(item):
     return text
 
 
+def agent_message_is_opaque(item):
+    """Whether an item was left alone because its body is opaque ciphertext."""
+    parts = item.get('content')
+    if not isinstance(parts, list):
+        return False
+    return any(isinstance(part, dict) and part.get('type') == 'encrypted_content'
+               and agent_payload_is_opaque(part.get('encrypted_content')) for part in parts)
+
+
 def inline_agent_messages(items, counters=None):
     """Deliver readable inter-agent messages as plain message text, in place order.
 
@@ -244,6 +253,10 @@ def inline_agent_messages(items, counters=None):
                 continue
             if counters is not None:
                 counters['left_alone'] = counters.get('left_alone', 0) + 1
+                # Split the reason: ciphertext we cannot decode versus an item with no
+                # readable body at all. The two need different follow-up work.
+                kind = 'left_opaque' if agent_message_is_opaque(item) else 'left_unreadable'
+                counters[kind] = counters.get(kind, 0) + 1
         result.append(item)
     return result if changed else items
 
@@ -891,9 +904,12 @@ class Adapter:
             return
         with self.lock:
             for key, value in (('agent_messages_inlined', counters.get('inlined', 0)),
-                               ('agent_messages_left_alone', counters.get('left_alone', 0))):
-                if value:
-                    self.stats[key] = self.stats.get(key, 0) + value
+                               ('agent_messages_left_alone', counters.get('left_alone', 0)),
+                               ('agent_messages_left_opaque', counters.get('left_opaque', 0)),
+                               ('agent_messages_left_unreadable', counters.get('left_unreadable', 0))):
+                # Always publish both keys, including a zero: a monitor that reads
+                # "must be 0" must not silently pass because the key is absent.
+                self.stats[key] = self.stats.get(key, 0) + value
 
     def prepare_forward(self, body, headers=None):
         """Prepare normal Responses input without mutating its original history.
@@ -917,6 +933,10 @@ class Adapter:
             prepared=body
             expanded=self.expand(items,model,headers=headers)
         # Routed providers cannot read an agent message body; deliver it as text.
+        # The rewrite is deliberately not gated on the model name: a name is not proof
+        # that the route decodes Responses items (the same ``gpt-*`` id can be relayed
+        # to a third-party upstream that drops them), and the only cost of inlining a
+        # message the route would have decoded anyway is the item shape the model sees.
         agent_message_counters={}
         expanded=inline_agent_messages(expanded,agent_message_counters)
         self.note_agent_messages(agent_message_counters)
