@@ -123,7 +123,10 @@ _CACHE_MISSES = 0
 # the process, so a retry after a restart used to re-encode every image (measured on a
 # 48-frame history: ~33 s of CPU on exactly the retry path that can least afford it),
 # while the vision transcription cache next to it already survived restarts.
-TRANSCODE_CACHE_VERSION = 1
+# Bumped to 2 when the key gained quality/mime/pipeline: entries written under the
+# narrow key can be the wrong frame for the request, so they are invalidated rather
+# than reused, and the previous directory is swept by _disk_prune.
+TRANSCODE_CACHE_VERSION = 2
 DISK_MAGIC = b'CXUTC1\n'
 # Everything a cached result depends on. A pricey bug came from hashing only the
 # source bytes plus the webp flag: a later call with a different quality (or a
