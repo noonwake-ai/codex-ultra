@@ -403,6 +403,84 @@ def provider_native_reasoning(item):
     return any(isinstance(part,dict) and part.get('type')=='reasoning_text' for part in parts)
 
 
+# An opaque thinking blob belongs to whoever minted it, and the item id cannot tell us that:
+# the client and the gateway mint ids themselves. The blob can, because each format carries
+# its own tag and the tags do not overlap on the routes this adapter serves (measured 2026-10-07):
+#   OpenAI    gAAAAA...                    Fernet-style opaque state
+#   gateway   anthropic-thinking-v1:<b64>  Anthropic thinking block, labelled by the relay
+#   Ark       base64 of b'v1' + version byte, i.e. ``dj..``  (73/73 doubao samples)
+#   DeepSeek  <uuid>-0 surrogate id; the chain itself travels in content[].reasoning_text
+CIPHERTEXT_OWNER_PREFIXES = (
+    ('anthropic','anthropic-thinking-v1:'),
+    ('openai','gAAAAA'),
+)
+
+# Slug prefix -> the upstream that can decode its own blob. Every vendor here speaks the same
+# Responses protocol through one relay, so the requested slug is the provenance available.
+MODEL_CIPHERTEXT_OWNERS = (
+    (('gpt-','o1','o3','o4','codex-'),'openai'),
+    (('claude-',),'anthropic'),
+    (('doubao-',),'ark'),
+)
+
+# Owners whose blobs this build actually replays, each verified end to end on a live route on
+# 2026-10-07 rather than assumed from the vendor name:
+#   ark       its own chain is restored and billed as input; a foreign OpenAI blob and a
+#             corrupt blob are both tolerated (HTTP 200 either way).
+#   anthropic Anthropic requires every thinking block of a tool-use turn back, unchanged, and
+#             the relay does decode its own prefix back into one: a replay costs +60 input
+#             tokens and the model then answers with 3 output tokens instead of 95, i.e. it
+#             stops re-deriving the reasoning. A foreign Ark blob on a Claude route is ignored
+#             silently (HTTP 200, same token count as no replay).
+# Anything else, including an untagged blob, keeps the summary-only path until it is measured.
+REPLAYABLE_CIPHERTEXT_OWNERS = frozenset({'ark', 'anthropic'})
+
+
+def ciphertext_owner(blob):
+    """Which upstream minted this opaque thinking blob, or None when unrecognised."""
+    if not isinstance(blob,str) or not blob: return None
+    for owner,prefix in CIPHERTEXT_OWNER_PREFIXES:
+        if blob.startswith(prefix): return owner
+    try:
+        head=base64.b64decode(blob[:4],validate=False)
+    except Exception:
+        return None
+    return 'ark' if head.startswith(b'v1') else None
+
+
+def model_ciphertext_owner(model):
+    """Which upstream a model slug would draw its own thinking chain from."""
+    if not isinstance(model,str): return None
+    lowered=model.lower()
+    for prefixes,owner in MODEL_CIPHERTEXT_OWNERS:
+        if any(lowered.startswith(prefix) for prefix in prefixes): return owner
+    return None
+
+
+def reasoning_is_replayable(item, model):
+    """True when this reasoning item may go back as the routed model's own thinking chain.
+
+    A third-party thinking model needs its chain replayed: DeepSeek and Gemini carry it as
+    ``content[].reasoning_text``, Volcengine Ark seals it into ``encrypted_content`` and its own
+    documentation states that omitting it degrades multi-round tool use. A blob minted by some
+    other vendor is still summarised, because the route consuming it cannot restore it and
+    would only pay for the bytes.
+    """
+    if provider_native_reasoning(item): return True
+    if not isinstance(item,dict): return False
+    blob=item.get('encrypted_content')
+    if not isinstance(blob,str) or not blob: return False
+    target=model_ciphertext_owner(model)
+    if target not in REPLAYABLE_CIPHERTEXT_OWNERS: return False
+    owner=ciphertext_owner(blob)
+    if owner is not None: return owner==target
+    # An unrecognised blob. Only Ark is measured to tolerate and ignore anything it cannot
+    # restore, so an Ark route keeps forwarding one and survives a future format change; the
+    # stricter routes summarise instead, because a blob they cannot decode buys nothing and
+    # Anthropic additionally rejects a thinking block it did not issue.
+    return target=='ark'
+
+
 def keychain_key(service=SERVICE, account=ACCOUNT, create=False):
     # One exact item lookup per process, no discovery, no decrypted keychain dump.
     r = subprocess.run(['/usr/bin/security','find-generic-password','-s',service,
@@ -844,7 +922,7 @@ class Adapter:
         except Exception: raise ValueError('checkpoint_integrity_or_key_failure') from None
 
     def expand(self, items, model, drop_trigger=False, headers=None, *,
-               preserve_reasoning=False, defer_native=False):
+               preserve_reasoning=False, defer_native=False, replay_chain=True):
         if not isinstance(items,list): return items
         from collections import Counter
         def fingerprint(item):
@@ -874,7 +952,8 @@ class Adapter:
                 else:
                     out.append(user('<context_checkpoint>\n'+self.export_native(item,headers or {})+'\n</context_checkpoint>'))
             elif (item.get('type')=='reasoning' and not model.startswith('gpt-')
-                    and not preserve_reasoning and not provider_native_reasoning(item)):
+                    and not preserve_reasoning
+                    and not (replay_chain and reasoning_is_replayable(item,model))):
                 # Hidden model reasoning is not portable task state. Keep only its public summary,
                 # with original messages and tool call/results still present exactly once.
                 texts=[p['text'] for p in item.get('summary',[]) if isinstance(p,dict) and p.get('type')=='summary_text' and isinstance(p.get('text'),str)]
@@ -1318,7 +1397,10 @@ class Adapter:
 
     def compact(self, body, headers):
         raw_items=body.get('input',[])
-        items=self.expand(raw_items,body.get('model',''),True,headers)
+        # The compactor is a GPT model: it can read its own opaque state but not a third-party
+        # blob, so the readable summary is what it must be handed. Only the forward path
+        # replays a chain.
+        items=self.expand(raw_items,body.get('model',''),True,headers,replay_chain=False)
         agent_message_counters={}
         # The compactor is reached through this service's own client, and its route is
         # configured separately from the thread's model. Sealed state is therefore kept

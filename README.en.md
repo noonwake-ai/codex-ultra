@@ -12,7 +12,7 @@ Kimi and GLM into Codex and use them like native models.
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg?style=flat-square&logo=apple)](docs/INSTALL.md)
-[![Tests](https://img.shields.io/badge/Tests-288%20offline-brightgreen.svg?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-301%20offline-brightgreen.svg?style=flat-square)](#tests)
 
 [简体中文](README.md) · [Let your AI install it](docs/ai-install.en.md) · [Manual install](docs/INSTALL.md) · [Model policy](docs/MODELS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -82,6 +82,10 @@ Whatever your gateway offers, you can use. These families have built-in policy:
 Adding a vendor is one line in [`model_presets.py`](model_presets.py). Details in
 [model policy](docs/MODELS.md).
 
+A third-party model's hidden thinking is routed by the tag its own ciphertext carries: **the
+vendor that minted it gets it back, everyone else keeps the readable summary.** Doubao (Ark) and
+Claude chains therefore survive a multi-round tool loop instead of being re-derived every turn.
+
 ---
 
 ## Deployment cost
@@ -129,7 +133,7 @@ Full details in [install](docs/INSTALL.md).
 python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
-288 offline tests, no paid requests. Covers compaction handoff, encrypted
+301 offline tests, no paid requests. Covers compaction handoff, encrypted
 checkpoints across restarts, tamper refusal, image pairing, gateway failures,
 catalog policy, endpoint rewrite and rollback. CI runs 3.11 / 3.12 / 3.13.
 
