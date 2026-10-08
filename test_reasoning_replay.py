@@ -128,9 +128,18 @@ class ReplayTests(OfflineCase):
         self.assertEqual(self.expand([deepseek], 'deepseek-flash'), [deepseek])
         self.assertEqual(self.expand([nano], 'qwen3.8-27b-nsfw'), [nano])
 
-    def test_gpt_route_is_untouched(self):
+    def test_gpt_route_keeps_its_own_state_and_drops_a_foreign_chain(self):
+        # The route is not proof of provenance. This thread ran on Doubao before, so its
+        # history still holds an Ark blob; OpenAI refuses the whole request it cannot
+        # protect ("response protection is unavailable"), so only its own item may travel.
+        # An unrecognised blob is a separate case and still passes (see
+        # test_foreign_blob.NativeBehaviourIsUnchangedTests).
         items = [reasoning(ARK_BLOB), reasoning(OPENAI_BLOB)]
-        self.assertEqual(self.expand(items, 'gpt-6-astra'), items)
+        out = self.expand(items, 'gpt-6-astra')
+        self.assertEqual([i for i in out if i.get('type') == 'reasoning'], [items[1]])
+        self.assertIn('Public continuation summary.',
+                      [p['text'] for i in out if i.get('type') == 'message'
+                       for p in i.get('content', []) if isinstance(p, dict)])
 
     def test_compaction_still_hands_the_compactor_a_readable_summary(self):
         # The compactor is a GPT model: it cannot restore a third-party blob, so the compaction

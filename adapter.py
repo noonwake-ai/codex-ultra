@@ -137,6 +137,33 @@ ZSTD_DOWNGRADE_AFTER = 3
 # probes instead of paying a failed attempt on every request.
 ZSTD_PROBE_COOLDOWN = 300
 ZSTD_PROBE_COOLDOWN_MAX = 3600
+def reasoning_blob_is_foreign(item, model):
+    """True when this reasoning item carries thinking state minted by a different upstream.
+
+    ``model_ciphertext_owner`` answers which upstream a *route* can decode; that is not the
+    same question as who minted a given blob. A thread that was switched from Claude (or
+    Doubao) to a GPT model keeps the earlier turns, so its history carries Anthropic or Ark
+    state inside a request routed to OpenAI. OpenAI refuses the whole request when it is
+    handed state it did not mint — the session then fails with ``response protection is
+    unavailable`` on every following turn, including the compaction turn that would have
+    cleared it.
+
+    GPT routes used to skip the conversion wholesale, so that foreign state travelled
+    untouched. The check is positive-only: a blob this deployment does not recognise keeps
+    the previous behaviour on every route.
+    """
+    if not isinstance(item,dict): return False
+    target=model_ciphertext_owner(model)
+    if target is None: return False
+    blob=item.get('encrypted_content')
+    if isinstance(blob,str) and blob:
+        owner=ciphertext_owner(blob)
+        if owner is not None: return owner!=target
+    # A third-party chain that travels as reasoning_text inside content[] is equally
+    # unreadable to OpenAI, which only ever mints opaque encrypted_content.
+    return target=='openai' and provider_native_reasoning(item)
+
+
 KNOWN_INPUT_TYPES = frozenset((
     'message', 'reasoning', 'function_call', 'function_call_output',
     'custom_tool_call', 'custom_tool_call_output', 'compaction',
@@ -596,7 +623,7 @@ class Adapter:
     media_prewarm_workers=2
     media_prewarm_max_per_request=6
     media_prewarm_min_bytes=16384
-    media_vision_model='gemini-3.8-flash'
+    media_vision_model='deepseek-flash'
     media_vision_effort='minimal'
     media_vision_json=True
     media_vision_max_tokens=1600
@@ -686,7 +713,7 @@ class Adapter:
         self.media_prewarm_workers=int(cfg.get('media_prewarm_workers',2))
         self.media_prewarm_max_per_request=int(cfg.get('media_prewarm_max_per_request',6))
         self.media_prewarm_min_bytes=int(cfg.get('media_prewarm_min_bytes',16384))
-        self.media_vision_model=cfg.get('media_vision_model','gemini-3.8-flash')
+        self.media_vision_model=cfg.get('media_vision_model','deepseek-flash')
         self.media_vision_effort=cfg.get('media_vision_effort','minimal')
         self.media_vision_json=bool(cfg.get('media_vision_json',True))
         self.media_vision_max_tokens=int(cfg.get('media_vision_max_tokens',1600))
@@ -951,9 +978,10 @@ class Adapter:
                     out.append(item)
                 else:
                     out.append(user('<context_checkpoint>\n'+self.export_native(item,headers or {})+'\n</context_checkpoint>'))
-            elif (item.get('type')=='reasoning' and not model.startswith('gpt-')
-                    and not preserve_reasoning
-                    and not (replay_chain and reasoning_is_replayable(item,model))):
+            elif (item.get('type')=='reasoning' and not preserve_reasoning
+                    and (reasoning_blob_is_foreign(item,model)
+                         or (not model.startswith('gpt-')
+                             and not (replay_chain and reasoning_is_replayable(item,model))))):
                 # Hidden model reasoning is not portable task state. Keep only its public summary,
                 # with original messages and tool call/results still present exactly once.
                 texts=[p['text'] for p in item.get('summary',[]) if isinstance(p,dict) and p.get('type')=='summary_text' and isinstance(p.get('text'),str)]
