@@ -7,6 +7,7 @@ pin the provenance rule that replaced the old "long blob means OpenAI" assumptio
 """
 
 import copy
+import json
 import unittest
 from unittest import mock
 
@@ -100,8 +101,24 @@ class ReplayTests(OfflineCase):
         self.summarised([reasoning(None)], 'doubao-seed-2.1-pro')
 
     def test_claude_replays_its_own_thinking_block(self):
+        # Anthropic requires every thinking block of a tool-use turn back, unchanged - but the
+        # block has to sit inside a turn that continues. A chain left as the very last block is
+        # refused outright ("The final block in an assistant message cannot be thinking",
+        # measured on the live route 2026-10-08); test_trailing_thinking.py pins that case.
         item = reasoning(ANTHROPIC_BLOB)
-        self.assertEqual(self.expand([item], 'claude-opus-5-5'), [item])
+        continuation = {'type': 'message', 'role': 'assistant',
+                        'content': [{'type': 'output_text', 'text': 'Answer.'}]}
+        out = self.adapter.expand([copy.deepcopy(item), copy.deepcopy(continuation)],
+                                  'claude-opus-5-5')
+        self.assertEqual(out, [item, continuation])
+
+    def test_claude_trailing_chain_loses_its_ciphertext_entirely(self):
+        # A lone trailing chain must leave the request with no reasoning item and no raw
+        # blob anywhere, which is what the route refuses otherwise.
+        out = self.expand([reasoning(ANTHROPIC_BLOB)], 'claude-opus-5-5')
+        self.assertFalse(any(i.get('type') == 'reasoning' for i in out))
+        self.assertNotIn(ANTHROPIC_BLOB, json.dumps(out))
+        self.assertEqual([i['type'] for i in out], ['message'])
 
     def test_claude_still_summarises_another_vendors_chain(self):
         # Replaying history onto another model is exactly when Anthropic says to drop them.

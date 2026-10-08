@@ -164,6 +164,43 @@ def reasoning_blob_is_foreign(item, model):
     return target=='openai' and provider_native_reasoning(item)
 
 
+# Codex carries one global reasoning effort (``model_reasoning_effort`` in config.toml) and
+# hands it to whichever model the picker selected, so a level the route rejects is a hard 400
+# on every turn instead of a downgrade. Measured against the live gateway 2026-10-08:
+#   x-ai/grok-4.7   400 unsupported_reasoning_effort for "max"; the route lists low/medium/high/xhigh
+#   gemini-3.8-flash, doubao-seed-2.1-pro, doubao-seed-evolving, claude-opus-5-5 and
+#   deepseek-flash all accept "max" unchanged, so nothing is clamped for them.
+# Only the exact slugs below carry a ceiling. An unknown model keeps whatever the client sent,
+# because guessing a ceiling for an unmeasured route would silently weaken the model.
+REASONING_EFFORT_ORDER = ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
+REASONING_EFFORT_CEILING = {
+    'x-ai/grok-4.7': 'xhigh',
+    'grok-4.7': 'xhigh',  # the bare alias a catalog may still carry
+}
+
+
+def clamp_reasoning_effort(body):
+    """Lower an effort the routed model cannot accept. Returns ``(body, clamped_from)``.
+
+    The original body object comes back untouched when nothing needed changing, so a no-op
+    never mutates the caller's request.
+    """
+    if not isinstance(body, dict): return body, None
+    model = body.get('model')
+    ceiling = REASONING_EFFORT_CEILING.get(model) if isinstance(model, str) else None
+    if ceiling is None: return body, None
+    reasoning = body.get('reasoning')
+    if not isinstance(reasoning, dict): return body, None
+    effort = reasoning.get('effort')
+    if not isinstance(effort, str): return body, None
+    try:
+        if REASONING_EFFORT_ORDER.index(effort) <= REASONING_EFFORT_ORDER.index(ceiling):
+            return body, None
+    except ValueError:
+        return body, None
+    return {**body, 'reasoning': {**reasoning, 'effort': ceiling}}, effort
+
+
 KNOWN_INPUT_TYPES = frozenset((
     'message', 'reasoning', 'function_call', 'function_call_output',
     'custom_tool_call', 'custom_tool_call_output', 'compaction',
@@ -989,7 +1026,75 @@ class Adapter:
             elif item.get('type')=='compaction_trigger' and drop_trigger:
                 continue
             else: out.append(item)
+        return self.demote_trailing_reasoning(out,model)
+
+    @staticmethod
+    def reasoning_summary_message(item):
+        texts=[p['text'] for p in item.get('summary',[]) if isinstance(p,dict)
+               and p.get('type')=='summary_text' and isinstance(p.get('text'),str)]
+        if not texts: return None
+        return {'type':'message','role':'assistant',
+                'content':[{'type':'output_text','text':'\n'.join(texts)}]}
+
+    @classmethod
+    def demote_trailing_reasoning(cls, items, model):
+        """A turn the client never finished must not end on a thinking block.
+
+        Anthropic refuses an assistant message whose final block is ``thinking``
+        (``The final block in an assistant message cannot be thinking``). That is exactly the
+        shape a replayed chain takes when the previous turn stopped after the model thought
+        but before it answered, and the refusal is a hard 400 on every following request, so
+        the session cannot continue at all. Measured on the live Claude Max route 2026-10-08.
+
+        Only the trailing run is touched, and only on Anthropic routes whose chain arrives as
+        a sealed blob. A chain followed by its own message or tool call still replays
+        unchanged - that is the case replay exists for. Provider-native ``reasoning_text``
+        (DeepSeek, Gemini) is left alone because those routes *require* it on the follow-up.
+        """
+        if model_ciphertext_owner(model)!='anthropic': return items
+        # Walk back over the trailing run. A message with no readable text counts as
+        # transparent: the downstream format has no block left to send for it, so it drops
+        # out and would put the thinking block last again. The adversarial review reproduced
+        # that live on 2026-10-08 with ``[user, function_call, function_call_output,
+        # reasoning, empty assistant]``, which still answered 400 until this loop stopped
+        # treating the empty message as terminal.
+        cut=len(items); demote=False
+        while cut:
+            item=items[cut-1]
+            if isinstance(item,dict) and item.get('type')=='reasoning':
+                if provider_native_reasoning(item): break
+                demote=True; cut-=1; continue
+            if cls.is_ignorable_assistant_message(item): cut-=1; continue
+            break
+        if not demote: return items
+        out=list(items[:cut])
+        for item in items[cut:]:
+            if (isinstance(item,dict) and item.get('type')=='reasoning'
+                    and not provider_native_reasoning(item)):
+                message=cls.reasoning_summary_message(item)
+                if message: out.append(message)
+            else: out.append(item)
         return out
+
+    @staticmethod
+    def is_ignorable_assistant_message(item):
+        """True for an assistant message the routed format will have nothing left to send.
+
+        Only a message whose parts are all text and all empty or whitespace qualifies.
+        Anything carrying a non-text part - an image, a refusal, a future type we have never
+        seen - is treated as real, so a trailing chain is left alone rather than guessed at.
+        """
+        if not isinstance(item,dict) or item.get('type')!='message': return False
+        if item.get('role')!='assistant': return False
+        content=item.get('content')
+        if content is None: return True
+        if not isinstance(content,list): return False
+        for part in content:
+            if not isinstance(part,dict): return False
+            if part.get('type') not in ('output_text','text','input_text'): return False
+            text=part.get('text')
+            if isinstance(text,str) and text.strip(): return False
+        return True
 
     # ------------------------------------------------------------------ media bytes
     def count_media(self, key, amount=1):
@@ -1219,6 +1324,11 @@ class Adapter:
         state and applies the original public-summary reasoning conversion.
         Compact requests and every other model keep the original expand path.
         """
+        body,clamped_from=clamp_reasoning_effort(body)
+        if clamped_from is not None:
+            self.count('reasoning_effort_clamps',1)
+            self.stats['reasoning_effort_last']={'model':body['model'],'from':clamped_from,
+                                                 'to':body['reasoning']['effort']}
         items=body.get('input',[])
         model=body['model']
         if model in self.media_models:
